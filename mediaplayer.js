@@ -178,25 +178,26 @@ AFRAME.registerComponent('media-selector', {
 				image.src = item.thumbnailUrl;
 			});
 		});
-		videolist.itemClicked = (pos, ev) => {
+		videolist.el.addEventListener('clickitem', (ev) => {
+			let pos = ev.detail.index;
 			this.currentPos = pos | 0;
 			this.itemlist.get(pos).then(item => {
 				console.log(item);
 				if (item.type === "list" || item.type === "tag") {
 					let path = item.path || "tags/" + item.name;
-					let mediaList = instantiate('mediaList');
-					mediaList.setAttribute("media-selector", "path", path);
+					let mediaList = instantiate('mediaListTemplate');
+					mediaList.setAttribute("media-selector", "path:" + path);
 					adjustWindowPos(mediaList);
 				} else if (item.contentType == "directory" || item.contentType == "archive") {
 					let path = item.path || "directory/" + item.id + "/items";
-					let mediaList = instantiate('mediaList');
-					mediaList.setAttribute("media-selector", { path: path, storage: this.storage });
+					let mediaList = instantiate('mediaListTemplate');
+					mediaList.setAttribute("media-selector", "path:" + path + ";storage:" + this.storage);
 					adjustWindowPos(mediaList);
 				} else {
 					this.el.sceneEl.systems["media-player"].playContent(item, this);
 				}
 			});
-		};
+		});
 
 		this._byName('storage-button').setAttribute('values', Object.keys(this.system.storageAccessors).join(","));
 		this._byName('storage-button').addEventListener('change', ev => {
@@ -264,62 +265,6 @@ AFRAME.registerComponent('media-selector', {
 	}
 });
 
-AFRAME.registerSystem('media-selector', {
-	storageAccessors: window.storageAccessors
-});
-
-AFRAME.registerSystem('media-player', {
-	shortcutKeys: true,
-	init() {
-		this.currentPlayer = null;
-		document.addEventListener('keydown', ev => {
-			if (this.shortcutKeys && !this.currentPlayer) return;
-			switch (ev.code) {
-				case "ArrowRight":
-					this.currentPlayer.mediaSelector.movePos(1);
-					break;
-				case "ArrowLeft":
-					this.currentPlayer.mediaSelector.movePos(-1);
-					break;
-				case "Space":
-					this.currentPlayer.togglePause();
-					break;
-			}
-		});
-		setTimeout(() => {
-			document.querySelectorAll('[laser-controls]').forEach(el => el.addEventListener('bbuttondown', ev => {
-				if (this.currentPlayer) this.currentPlayer.mediaSelector.movePos(-1);
-			}));
-			document.querySelectorAll('[laser-controls]').forEach(el => el.addEventListener('abuttondown', ev => {
-				if (this.currentPlayer) this.currentPlayer.mediaSelector.movePos(1);
-			}));
-		}, 0);
-	},
-	playContent(item, mediaSelector) {
-		if (this.currentPlayer === null) {
-			instantiate('mediaPlayerTemplate').addEventListener('loaded', e => {
-				this.currentPlayer.mediaSelector = mediaSelector;
-				this.currentPlayer.playContent(item, mediaSelector);
-				adjustWindowPos(this.currentPlayer.el);
-			}, false);
-		} else {
-			this.currentPlayer.mediaSelector = mediaSelector;
-			this.currentPlayer.playContent(item, mediaSelector);
-		}
-	},
-	registerPlayer(player) {
-		this.selectPlayer(player);
-	},
-	unregisterPlayer(player) {
-		if (player == this.currentPlayer) {
-			this.currentPlayer = null;
-		}
-	},
-	selectPlayer(player) {
-		this.currentPlayer = player;
-	}
-});
-
 AFRAME.registerComponent('media-player', {
 	schema: {
 		src: { default: "" },
@@ -373,6 +318,10 @@ AFRAME.registerComponent('media-player', {
 		if (h > maxh) {
 			h = maxh;
 			w = width / height * h;
+		}
+		if (isNaN(h)) {
+			h = 3;
+			w = 10;
 		}
 
 		this.screen.setAttribute("width", w);
@@ -486,6 +435,62 @@ AFRAME.registerComponent('media-player', {
 		this.screen.removeAttribute("material"); // to avoid texture leaks.
 		if (this.mediaEl) this.mediaEl.parentNode.removeChild(this.mediaEl);
 		this.el.removeEventListener('click', this.onclicked);
+	}
+});
+
+AFRAME.registerSystem('media-selector', {
+	storageAccessors: window.storageAccessors
+});
+
+AFRAME.registerSystem('media-player', {
+	shortcutKeys: true,
+	init() {
+		this.currentPlayer = null;
+		document.addEventListener('keydown', ev => {
+			if (this.shortcutKeys && !this.currentPlayer) return;
+			switch (ev.code) {
+				case "ArrowRight":
+					this.currentPlayer.mediaSelector.movePos(1);
+					break;
+				case "ArrowLeft":
+					this.currentPlayer.mediaSelector.movePos(-1);
+					break;
+				case "Space":
+					this.currentPlayer.togglePause();
+					break;
+			}
+		});
+		setTimeout(() => {
+			document.querySelectorAll('[laser-controls]').forEach(el => el.addEventListener('bbuttondown', ev => {
+				if (this.currentPlayer) this.currentPlayer.mediaSelector.movePos(-1);
+			}));
+			document.querySelectorAll('[laser-controls]').forEach(el => el.addEventListener('abuttondown', ev => {
+				if (this.currentPlayer) this.currentPlayer.mediaSelector.movePos(1);
+			}));
+		}, 0);
+	},
+	playContent(item, mediaSelector) {
+		if (this.currentPlayer === null) {
+			instantiate('mediaPlayerTemplate').addEventListener('loaded', e => {
+				this.currentPlayer.mediaSelector = mediaSelector;
+				this.currentPlayer.playContent(item, mediaSelector);
+				adjustWindowPos(this.currentPlayer.el);
+			}, false);
+		} else {
+			this.currentPlayer.mediaSelector = mediaSelector;
+			this.currentPlayer.playContent(item, mediaSelector);
+		}
+	},
+	registerPlayer(player) {
+		this.selectPlayer(player);
+	},
+	unregisterPlayer(player) {
+		if (player == this.currentPlayer) {
+			this.currentPlayer = null;
+		}
+	},
+	selectPlayer(player) {
+		this.currentPlayer = player;
 	}
 });
 
@@ -715,15 +720,16 @@ AFRAME.registerComponent('atlas', {
 		src: { default: "" },
 		index: { default: 0 },
 		cols: { default: 1 },
-		rows: { default: 1 }
+		rows: { default: 1 },
+		margin: { default: 0.01 }
 	},
 	update() {
-		let u = (this.data.index % this.data.cols) / this.data.cols;
-		let v = (this.data.rows - 1 - Math.floor(this.data.index / this.data.cols)) / this.data.rows;
+		let u = (this.data.index % this.data.cols + this.data.margin) / this.data.cols;
+		let v = (this.data.rows - 1 - Math.floor(this.data.index / this.data.cols) + this.data.margin) / this.data.rows;
 		this.el.setAttribute("material", {
 			shader: 'msdf2',
 			transparent: true,
-			repeat: { x: 1 / this.data.cols, y: 1 / this.data.rows },
+			repeat: { x: 1 / this.data.cols - this.data.margin, y: 1 / this.data.rows - this.data.margin },
 			src: this.data.src
 		});
 		this.el.setAttribute("material", "offset", { x: u, y: v });

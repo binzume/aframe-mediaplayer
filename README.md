@@ -4,7 +4,7 @@
 - Google drive support
 - 3D videos
 
-### Supported 3D mode
+### Supported mode
 
 - 2D mode
 - 3D side-by-side/top-and-bottom
