@@ -25,10 +25,10 @@
         <a-xywindow media-player width="10" height="6" position="0 5 -12" xy-drag-control="draggable:.screen;autoRotate:true">
           <a-video class="screen" width="10" height="6" src="#loading" material="npot:true;shader: flat;"></a-video>
           <a-entity>
-          <a-xylayout media-controller width="9" height="2.2" position="0 1.5 0.05">
+          <a-xycontainer media-controller width="9" height="2.2" position="0 1.5 0.05">
             <a-entity xyitem="fixed:true" geometry="primitive:xy-rounded-rect;width:9;height:2.2" position="0 0 -0.02" material="color:#444; opacity:0.8"></a-entity>
             <a-xyrange name="seek" width="9" height="0.4"></a-xyrange>
-            <a-xylayout direction="row" width="6" height="1" spacing="0.2" justify-items="space-between">
+            <a-xycontainer direction="row" width="6" height="1" spacing="0.2" justify-items="space-between">
               <a-xybutton name="prev" width="1" height="0.8">
                 <a-plane width="0.7" height="0.7" position="0 0 0.02" atlas="src:#icons; cols:2; rows: 4; index:3"></a-plane>
               </a-xybutton>
@@ -44,25 +44,25 @@
               <a-xybutton name="next" width="1" height="0.8">
                 <a-plane width="0.7" height="0.7" position="0 0 0.02" atlas="src:#icons; cols:2; rows: 4; index:2"></a-plane>
               </a-xybutton>
-            </a-xylayout>
-            <a-xylayout direction="row" width="8" height="0.6" spacing="0.1" justify-items="end">
+            </a-xycontainer>
+            <a-xycontainer direction="row" width="8" height="0.6" spacing="0.1" justify-items="end">
               <a-xyrange name="playbackRate" min="0.2" max="3" step="0.2" value="1" width="3" height="0.4"></a-xyrange>
               <a-xylabel name="playbackRateText" width="0.6" height="0.4" wrap-count="3" value="1.0"></a-xylabel>
               <a-xyselect name="loopmode" width="1" height="0.6" toggle="true" select="1" values="L-OFF,L-1,&gt;-&gt;"></a-xyselect>
               <a-xyselect name="stereomode" width="1" height="0.6" label="3D"  values="2D,LR,TB,360,3D360,CubeMap"></a-xyselect>
-            </a-xylayout>
-          </a-xylayout>
+            </a-xycontainer>
+          </a-xycontainer>
           </a-entity>
         </a-xywindow>
       </template>
       <template id="mediaListTemplate" data-import="mediaplayer/mediaplayer.js">
         <a-xywindow media-selector position="-10 3 -5" title="Media" width="4" height="6" rotation="0 40 0" direction="column">
-          <a-xylayout width="4" height="0.4" direction="row" align-items="stretch" justify-items="stretch">
+          <a-xycontainer width="4" height="0.4" direction="row" align-items="stretch" justify-items="stretch">
             <a-xyselect name="storage-button" label="..." width="0.5" height="0.4" values=""></a-xyselect>
             <a-xybutton name="sort-name-button" label="A-Z" width="0.5"></a-xybutton>
             <a-xybutton name="sort-updated-button" label="NEW" width="0.5"></a-xybutton>
             <a-xybutton name="fav-button" label="+Fav" width="0.4"></a-xybutton>
-          </a-xylayout>
+          </a-xycontainer>
           <a-xyscroll width=4 height=6>
             <a-plane xyitem="fixed:true" class="xyscroll-fixed" class="clickable" position="2 3 -0.05" width=4 height=6 material="color: #111; opacity:0.5"></a-plane>
             <a-entity name="medialist" xylist="" xyrect=""></a-entity>

@@ -187,12 +187,18 @@ AFRAME.registerComponent('media-selector', {
 					let path = item.path || "tags/" + item.name;
 					let mediaList = instantiate('mediaListTemplate');
 					mediaList.setAttribute("media-selector", "path:" + path);
-					adjustWindowPos(mediaList);
+					let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
+					mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
+					mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
+					adjustWindowPos(mediaList, true);
 				} else if (item.contentType == "directory" || item.contentType == "archive") {
 					let path = item.path || "directory/" + item.id + "/items";
 					let mediaList = instantiate('mediaListTemplate');
 					mediaList.setAttribute("media-selector", "path:" + path + ";storage:" + this.storage);
-					adjustWindowPos(mediaList);
+					let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
+					mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
+					mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
+					adjustWindowPos(mediaList, true);
 				} else {
 					this.el.sceneEl.systems["media-player"].playContent(item, this);
 				}
