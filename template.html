@@ -3,29 +3,22 @@
 
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>MediaPlayer</title>
-  <script
-    src="https://cdn.jsdelivr.net/gh/aframevr/aframe@0642e09bbdc8e7539a0608672a5f0197fbf3d21e/dist/aframe-master.min.js"></script>
-  <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js?"></script>
-  <script src="googledrive.js"></script>
-  <script src="https://apis.google.com/js/api.js?onload=gapiLoaded" async defer></script>
-  <script src="workspace.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@v0.9.2/dist/aframe-master.min.js"></script>
+  <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
 </head>
 
 <body style="background-color: black; color:white;">
-  <a-scene fog="type: linear; color: #000; near:20;far:200;" cursor="rayOrigin: mouse; fuse:false"
-    raycaster="objects:.clickable,.collidable,a-rounded;far:5500" renderer="antialias: true;">
+  <a-scene cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable,a-rounded;far:5500" renderer="antialias: true;">
 
     <a-assets>
       <img id="icons" src="images/icons.png" />
       <img id="loading" src="images/loading.png" />
-
-      <template id="mediaPlayerTemplate" data-import="mediaplayer/mediaplayer.js">
+      <template id="mediaPlayerTemplate" data-import="mediaplayer.js">
         <a-xywindow media-player width="10" height="6" position="0 5 -12" xy-drag-control="draggable:.screen;autoRotate:true">
           <a-video class="screen" width="10" height="6" src="#loading" material="npot:true;shader: flat;"></a-video>
-          <a-entity>
-          <a-xycontainer media-controller width="9" height="2.2" position="0 1.5 0.05">
+          <a-entity xyrect>
+          <a-xycontainer direction="column" media-controller width="9" height="2.2" position="0 1.5 0.05">
             <a-entity xyitem="fixed:true" geometry="primitive:xy-rounded-rect;width:9;height:2.2" position="0 0 -0.02" material="color:#444; opacity:0.8"></a-entity>
             <a-xyrange name="seek" width="9" height="0.4"></a-xyrange>
             <a-xycontainer direction="row" width="6" height="1" spacing="0.2" justify-items="space-between">
@@ -55,7 +48,7 @@
           </a-entity>
         </a-xywindow>
       </template>
-      <template id="mediaListTemplate" data-import="mediaplayer/mediaplayer.js">
+      <template id="mediaListTemplate" data-import="mediaplayer.js">
         <a-xywindow media-selector position="-10 3 -5" title="Media" width="4" height="6" rotation="0 40 0" direction="column">
           <a-xycontainer width="4" height="0.4" direction="row" align-items="stretch" justify-items="stretch">
             <a-xyselect name="storage-button" label="..." width="0.5" height="0.4" values=""></a-xyselect>
@@ -64,19 +57,18 @@
             <a-xybutton name="fav-button" label="+Fav" width="0.4"></a-xybutton>
           </a-xycontainer>
           <a-xyscroll width=4 height=6>
-            <a-plane xyitem="fixed:true" class="xyscroll-fixed" class="clickable" position="2 3 -0.05" width=4 height=6 material="color: #111; opacity:0.5"></a-plane>
+            <a-plane xyitem="fixed:true" class="xyscroll-fixed" class="collidable" position="2 3 -0.05" width=4 height=6 material="color: #111; opacity:0.5"></a-plane>
             <a-entity name="medialist" xylist="" xyrect=""></a-entity>
           </a-xyscroll>
         </a-xywindow>
       </template>
+
     </a-assets>
 
-    <a-entity id="camera-rig" position-controls="">
+    <a-entity id="camera-rig" position-controls="arrowkeys:rotation;wasdkeys:translation">
       <a-camera position="0 1.5 0" look-controls="enabled:false"></a-camera>
-      <a-entity laser-controls="hand: right" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
-      </a-entity>
-      <a-entity laser-controls="hand: left" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
-      </a-entity>
+      <a-entity laser-controls="hand: right" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded" line="color: #3060a0; opacity: 0.5"></a-entity>
+      <a-entity laser-controls="hand: left" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded" line="color: #3060a0; opacity: 0.5"></a-entity>
     </a-entity>
 
   </a-scene>

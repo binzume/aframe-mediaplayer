@@ -77,7 +77,7 @@ class LocalList {
 	get(position) {
 		return Promise.resolve(this.items[position]);
 	}
-	addItem(item) {
+	addItem(item, storage = null) {
 		if (this.contains(item.name)) return;
 		this.items.push(item);
 		this.size = this.items.length;
@@ -129,7 +129,6 @@ AFRAME.registerComponent('media-selector', {
 		this.currentPos = -1;
 		this.sortOrder = null;
 		this.sortBy = null;
-		this.storage = null;
 		this.item = {};
 		var videolist = this._byName('medialist').components.xylist;
 		videolist.setCallback(function (parent, data) {
@@ -178,40 +177,28 @@ AFRAME.registerComponent('media-selector', {
 				image.src = item.thumbnailUrl;
 			});
 		});
-		videolist.el.addEventListener('clickitem', (ev) => {
+		videolist.el.addEventListener('clickitem', async (ev) => {
 			let pos = ev.detail.index;
 			this.currentPos = pos | 0;
-			this.itemlist.get(pos).then(item => {
-				console.log(item);
-				if (item.type === "list" || item.type === "tag") {
-					let path = item.path || "tags/" + item.name;
-					let mediaList = instantiate('mediaListTemplate');
-					mediaList.setAttribute("media-selector", "path:" + path);
-					let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
-					mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
-					mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
-					adjustWindowPos(mediaList, true);
-				} else if (item.contentType == "directory" || item.contentType == "archive") {
-					let path = item.path || "directory/" + item.id + "/items";
-					let mediaList = instantiate('mediaListTemplate');
-					mediaList.setAttribute("media-selector", "path:" + path + ";storage:" + this.storage);
-					let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
-					mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
-					mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
-					adjustWindowPos(mediaList, true);
-				} else {
-					this.el.sceneEl.systems["media-player"].playContent(item, this);
-				}
-			});
+			let item = await this.itemlist.get(pos);
+			console.log(item);
+			if (item.type === "list" || item.type === "tag") {
+				this._openList(item.storage, item.path);
+			} else if (item.contentType == "directory" || item.contentType == "archive") {
+				this._openList(item.storage || this.data.storage, item.path);
+			} else {
+				this.el.sceneEl.systems["media-player"].playContent(item, this);
+			}
 		});
 
 		this._byName('storage-button').setAttribute('values', Object.keys(this.system.storageAccessors).join(","));
 		this._byName('storage-button').addEventListener('change', ev => {
-			this.load(ev.detail.value);
+			// this._openList(ev.detail.value, "");
+			this.el.setAttribute('media-selector', { storage: ev.detail.value, path: "" });
 		});
 
 		this._byName('fav-button').addEventListener('click', (e) => {
-			if (this.item) new LocalList("favoriteItems").addItem(this.item);
+			if (this.item) new LocalList("favoriteItems").addItem(this.item, this.data.storage);
 		});
 		this._byName('sort-name-button').addEventListener('click', (e) => {
 			this.setSort("name", (this.sortBy == "name" && this.sortOrder == "a") ? "d" : "a");
@@ -221,22 +208,27 @@ AFRAME.registerComponent('media-selector', {
 		});
 	},
 	update() {
-		this.load(this.data.storage, this.data.path);
-	},
-	load(storage, path, pos) {
-		this.storage = storage;
-		console.log("load list: ", path, pos);
+		let path = this.data.path;
+		console.log("load list: ", path);
 		this.item = { type: "list", path: path, name: path };
-		this._loadList(path, pos);
+		this._loadList(path);
+	},
+	async _openList(storage, path) {
+		let mediaList = await instantiate('mediaListTemplate');
+		mediaList.setAttribute("media-selector", "path:" + path + (storage ? ";storage:" + storage : ""));
+		let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
+		mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
+		mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
+		adjustWindowPos(mediaList, true);
 	},
 	setSort(sortBy, sortOrder) {
 		this.sortBy = sortBy;
 		this.sortOrder = sortOrder;
 		this._loadList(this.itemlist.itemPath);
 	},
-	_loadList(path, pos) {
-		this.currentPos = pos | 0;
-		let accessor = this.system.storageAccessors[this.storage || "MEDIA"];
+	_loadList(path) {
+		this.currentPos = 0;
+		let accessor = this.system.storageAccessors[this.data.storage || "MEDIA"];
 		this.itemlist = accessor.getList(path || accessor.root, { orderBy: this.sortBy, order: this.sortOrder });
 		this.itemlist.init().then(() => {
 			var mediaList = this._byName('medialist').components.xylist;
@@ -244,10 +236,6 @@ AFRAME.registerComponent('media-selector', {
 			this.el.setAttribute("xywindow", "title", this.itemlist.name);
 			this.item.name = this.itemlist.name;
 			this.item.thumbnailUrl = this.itemlist.thumbnailUrl;
-			if (pos != null) {
-				this.currentPos = pos - 1;
-				this.movePos(1);
-			}
 		});
 	},
 	movePos(d) {
@@ -475,9 +463,9 @@ AFRAME.registerSystem('media-player', {
 			}));
 		}, 0);
 	},
-	playContent(item, mediaSelector) {
+	async playContent(item, mediaSelector) {
 		if (this.currentPlayer === null) {
-			instantiate('mediaPlayerTemplate').addEventListener('loaded', e => {
+			(await instantiate('mediaPlayerTemplate')).addEventListener('loaded', e => {
 				this.currentPlayer.mediaSelector = mediaSelector;
 				this.currentPlayer.playContent(item, mediaSelector);
 				adjustWindowPos(this.currentPlayer.el);
