@@ -566,12 +566,12 @@ AFRAME.registerComponent('media-controller', {
 	_updateProgress() {
 		if (this.player.mediaEl && this.player.mediaEl.duration) {
 			this._byName("seek").setAttribute('max', this.player.mediaEl.duration);
-			this._byName("seek").components.xyrange.setValue(this.player.mediaEl.currentTime);
+			this._byName("seek").value = this.player.mediaEl.currentTime;
 		}
 	},
 	_updatePlaybackRate(rate) {
 		this._byName("playbackRateText").setAttribute("value", rate.toFixed(1));
-		this._byName("playbackRate").setAttribute("xyrange", "value", rate);
+		this._byName("playbackRate").value = rate;
 		this.player.el.setAttribute('media-player', 'playbackRate', rate);
 	},
 	_byName(name) {
