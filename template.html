@@ -15,7 +15,7 @@
       <img id="icons" src="images/icons.png" />
       <img id="loading" src="images/loading.png" />
       <template id="mediaPlayerTemplate" data-import="mediaplayer.js">
-        <a-xywindow media-player width="10" height="6" position="0 5 -12" xy-drag-control="draggable:.screen;autoRotate:true">
+        <a-xywindow media-player width="10" height="6" position="0 5 -12" xy-drag-control="draggable:.screen;autoRotate:true" xycontainer="direction:column">
           <a-video class="screen" width="10" height="6" src="#loading" material="npot:true;shader: flat;"></a-video>
           <a-entity xyrect>
           <a-xycontainer direction="column" media-controller width="9" height="2.2" position="0 1.5 0.05">
@@ -49,8 +49,8 @@
         </a-xywindow>
       </template>
       <template id="mediaListTemplate" data-import="mediaplayer.js">
-        <a-xywindow media-selector position="-10 3 -5" title="Media" width="4" height="6" rotation="0 40 0" direction="column">
-          <a-xycontainer width="4" height="0.4" direction="row" align-items="stretch" justify-items="stretch">
+        <a-xywindow media-selector position="-10 3 -5" title="Media" width="4" height="6" rotation="0 40 0" xycontainer="direction:column">
+          <a-xycontainer width="4" height="0.4" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
             <a-xyselect name="storage-button" label="..." width="0.5" height="0.4" values=""></a-xyselect>
             <a-xybutton name="sort-name-button" label="A-Z" width="0.5"></a-xybutton>
             <a-xybutton name="sort-updated-button" label="NEW" width="0.5"></a-xybutton>
