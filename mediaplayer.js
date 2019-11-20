@@ -114,7 +114,7 @@ window.storageAccessors = Object.assign(window.storageAccessors || {}, {
 	"MEDIA": {
 		name: "Media",
 		root: "tags",
-		shortcuts: { "All": "tags/_ALL_ITEMS" },
+		shortcuts: { "Tags": "tags", "All": "tags/_ALL_ITEMS", "Volumes": "volumes" },
 		getList: (folder, options) => new ItemList(folder, options)
 	}
 });
@@ -184,17 +184,33 @@ AFRAME.registerComponent('media-selector', {
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
 				this._openList(item.storage, item.path);
-			} else if (item.contentType == "directory" || item.contentType == "archive") {
+			} else if (item.type == "directory" || item.type == "archive") {
 				this._openList(item.storage || this.data.storage, item.path);
 			} else {
 				this.el.sceneEl.systems["media-player"].playContent(item, this);
 			}
 		});
 
-		this._byName('storage-button').setAttribute('values', Object.keys(this.system.storageAccessors).join(","));
+		let storageNames = [];
+		let storageParams = [];
+		for (let k in this.system.storageAccessors) {
+			let sa = this.system.storageAccessors[k];
+			if (sa.shortcuts && Object.keys(sa.shortcuts).length) {
+				Object.keys(sa.shortcuts).forEach(n => {
+					storageNames.push(n);
+					storageParams.push([k, sa.shortcuts[n]]);
+				});
+
+			} else {
+				storageNames.push(sa.name);
+				storageParams.push([k, sa.root]);
+			}
+		}
+		this._byName('storage-button').setAttribute('values', storageNames.join(","));
 		this._byName('storage-button').addEventListener('change', ev => {
-			// this._openList(ev.detail.value, "");
-			this.el.setAttribute('media-selector', { storage: ev.detail.value, path: "" });
+			let storageAndPath = storageParams[ev.detail.index];
+			// this._openList(storageAndPath[0], storageAndPath[1]);
+			this.el.setAttribute('media-selector', { storage: storageAndPath[0], path: storageAndPath[1] || "" });
 		});
 
 		this._byName('fav-button').addEventListener('click', (e) => {
@@ -242,7 +258,7 @@ AFRAME.registerComponent('media-selector', {
 		this.currentPos += d;
 		if (this.currentPos >= 0 && this.currentPos < this.itemlist.size) {
 			this.itemlist.get(this.currentPos).then(item => {
-				let t = item.contentType.split("/")[0];
+				let t = item.type.split("/")[0];
 				if (t == "image" || t == "video" || t == "audio") {
 					this.el.sceneEl.systems["media-player"].playContent(item, this);
 				} else {
@@ -325,7 +341,7 @@ AFRAME.registerComponent('media-player', {
 	},
 	playContent(f, mediaSelector) {
 		this.el.dispatchEvent(new CustomEvent('media-player-play', { detail: { item: f, mediaSelector: mediaSelector } }));
-		console.log("play: " + f.url + " " + f.contentType);
+		console.log("play: " + f.url + " " + f.type);
 		if (this.el.components.xywindow && f.name) {
 			this.el.setAttribute("xywindow", "title", f.name);
 		}
@@ -333,7 +349,7 @@ AFRAME.registerComponent('media-player', {
 		this.screen.setAttribute('material', { shader: "flat", src: this.data.loadingSrc, transparent: false, npot: true });
 
 		var dataElem;
-		if (f.contentType && f.contentType.split("/")[0] == "image") {
+		if (f.type && f.type.split("/")[0] == "image") {
 			dataElem = Object.assign(document.createElement("img"), { crossOrigin: "" });
 			dataElem.addEventListener('load', ev => {
 				this.resize(dataElem.naturalWidth, dataElem.naturalHeight);
@@ -581,26 +597,26 @@ AFRAME.registerComponent('media-controller', {
 
 
 AFRAME.registerComponent('xycanvas', {
-    schema: {
-        width: { default: 16 },
-        height: { default: 16 }
-    },
-    init() {
-        this.canvas = document.createElement("canvas");
+	schema: {
+		width: { default: 16 },
+		height: { default: 16 }
+	},
+	init() {
+		this.canvas = document.createElement("canvas");
 
-        // to avoid texture cache conflict in a-frame.
-        this.canvas.id = "_CANVAS" + Math.random();
-        let src = new THREE.CanvasTexture(this.canvas);
-        this.updateTexture = () => {
-            src.needsUpdate = true;
-        };
+		// to avoid texture cache conflict in a-frame.
+		this.canvas.id = "_CANVAS" + Math.random();
+		let src = new THREE.CanvasTexture(this.canvas);
+		this.updateTexture = () => {
+			src.needsUpdate = true;
+		};
 
-        this.el.setAttribute('material', { shader: "flat", npot: true, src: src, transparent: true });
-    },
-    update() {
-        this.canvas.width = this.data.width;
-        this.canvas.height = this.data.height;
-    }
+		this.el.setAttribute('material', { shader: "flat", npot: true, src: src, transparent: true });
+	},
+	update() {
+		this.canvas.width = this.data.width;
+		this.canvas.height = this.data.height;
+	}
 });
 
 AFRAME.registerComponent('stereo-texture', {
