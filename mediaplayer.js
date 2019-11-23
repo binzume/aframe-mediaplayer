@@ -184,7 +184,7 @@ AFRAME.registerComponent('media-selector', {
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
 				this._openList(item.storage, item.path);
-			} else if (item.type == "directory" || item.type == "archive") {
+			} else if (item.type == "folder" || item.type == "archive") {
 				this._openList(item.storage || this.data.storage, item.path);
 			} else {
 				this.el.sceneEl.systems["media-player"].playContent(item, this);
