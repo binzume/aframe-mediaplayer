@@ -16,6 +16,10 @@ class ItemList {
 		this.apiUrl = "../api/";
 		this.loadPromise = null;
 		this.items = [];
+		let m = window.location.search.match(/api=(.*)/);
+		if (m) {
+			this.apiUrl = m[1];
+		}
 	}
 	async init() {
 		await this._load(0);
@@ -100,6 +104,8 @@ class LocalList {
 			this.items.sort((a, b) => (a.name || "").localeCompare(b.name) * r);
 		} else if (orderBy === "updated") {
 			this.items.sort((a, b) => (a.updatedTime || "").localeCompare(b.updatedTime) * r);
+		} else if (orderBy === "size") {
+			this.items.sort((a, b) => ((a.size && b.size) ? a.size - b.size : 0) * r);
 		}
 	}
 }
@@ -114,7 +120,7 @@ window.storageAccessors = Object.assign(window.storageAccessors || {}, {
 	"MEDIA": {
 		name: "Media",
 		root: "tags",
-		shortcuts: { "Tags": "tags", "All": "tags/_ALL_ITEMS", "Volumes": "volumes" },
+		shortcuts: { "Tags": "tags", "All": "tags/.ALL_ITEMS", "Volumes": "volumes" },
 		getList: (folder, options) => new ItemList(folder, options)
 	}
 });
@@ -122,7 +128,8 @@ window.storageAccessors = Object.assign(window.storageAccessors || {}, {
 AFRAME.registerComponent('media-selector', {
 	schema: {
 		storage: { default: "MEDIA" },
-		path: { default: "" }
+		path: { default: "" },
+		openWindow: { default: false }
 	},
 	init() {
 		this.itemlist = new ItemList();
@@ -130,52 +137,127 @@ AFRAME.registerComponent('media-selector', {
 		this.sortOrder = null;
 		this.sortBy = null;
 		this.item = {};
-		var videolist = this._byName('medialist').components.xylist;
-		videolist.setCallback(function (parent, data) {
-			//console.log("create elem");
-			var el = document.createElement('a-plane');
-			el.setAttribute("width", 4.0);
-			el.setAttribute("height", 1.0);
-			el.setAttribute("xyrect", {});
-			el.setAttribute("xycanvas", { width: 512, height: 128 });
-			return el;
-		}, (position, el, data) => {
-			var ctx = el.components.xycanvas.canvas.getContext("2d");
-			ctx.clearRect(0, 0, 512, 128);
-
-			let prevSise = this.itemlist.size;
-			data.get(position).then((item) => {
-				if (el.dataset.listPosition != position || item == null) {
-					return;
+		let videolist = this._byName('medialist').components.xylist;
+		let itemWidth = 4.0;
+		let itemHeight = 1.0;
+		let cols = 1;
+		let thumbW = 200, thumbH = 128;
+		let windowWidth = this.el.getAttribute('width');
+		let gridMode = false;
+		if (windowWidth >= 4) {
+			// experimental
+			gridMode = true;
+			cols = Math.floor(windowWidth / 1.5);
+			itemHeight = itemWidth = windowWidth / cols;
+			thumbW = 256 - 4;
+			thumbH = 160;
+		}
+		videolist.setLayout({
+			size(itemCount) {
+				return { width: itemWidth * cols, height: itemHeight * Math.ceil(itemCount / cols) };
+			},
+			*targets(viewport) {
+				let position = Math.floor((-viewport[0]) / itemHeight) * cols;
+				let end = Math.ceil((-viewport[1]) / itemHeight) * cols;
+				while (position < end) {
+					yield position++;
 				}
-				if (this.itemlist.size != prevSise) {
-					videolist.setContents(this.itemlist, this.itemlist.size); // update size
+			},
+			layout(el, position) {
+				let x = (position % cols) * itemWidth, y = - Math.floor(position / cols) * itemHeight;
+				let xyrect = el.components.xyrect;
+				let pivot = xyrect ? xyrect.data.pivot : { x: 0.5, y: 0.5 };
+				el.setAttribute("position", { x: x + pivot.x * xyrect.width, y: y - pivot.y * xyrect.height, z: 0 });
+			}
+		});
+		videolist.setAdapter({
+			selector: this,
+			create(parent) {
+				//console.log("create elem");
+				var el = document.createElement('a-plane');
+				el.setAttribute("width", itemWidth);
+				el.setAttribute("height", itemHeight);
+				el.setAttribute("xyrect", {});
+				if (gridMode) {
+					el.setAttribute("xycanvas", { width: 256, height: 256 });
+				} else {
+					el.setAttribute("xycanvas", { width: 512, height: 128 });
 				}
-
-				ctx.font = "24px bold sans-serif";
-				ctx.fillStyle = "white";
-				ctx.fillText(item.name, 0, 23);
+				return el;
+			}, bind(position, el, data) {
+				let canvas = el.components.xycanvas.canvas;
+				let ctx = el.components.xycanvas.canvas.getContext("2d");
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
 				el.components.xycanvas.updateTexture();
 
-				if (!item.thumbnailUrl) return;
-				var image = new Image();
-				image.crossOrigin = "anonymous";
-				image.referrerPolicy = "origin-when-cross-origin";
-				image.onload = function () {
-					if (el.dataset.listPosition != position) {
+				let wrapText = (str, textWidth, ctx) => {
+					let lines = [''], ln = 0;
+					for (let char of str) {
+						if (char == '\n' || ctx.measureText(lines[ln] + char).width > textWidth) {
+							lines.push('');
+							ln++;
+						} else {
+							lines[ln] += char;
+						}
+					}
+					return lines;
+				};
+
+				let prevSise = this.selector.itemlist.size;
+				data.get(position).then((item) => {
+					if (el.dataset.listPosition != position || item == null) {
 						return;
 					}
-					var dw = 200, dh = 128 - 24;
-					var sx = 0, sy = 0, sw = image.width, sh = image.height;
-					if (sh / sw > dh / dw) {
-						sy = (sh - dh / dw * sw) / 2;
-						sh -= sy * 2;
+					if (this.selector.itemlist.size != prevSise) {
+						videolist.setContents(this.selector.itemlist, this.selector.itemlist.size); // update size
 					}
-					ctx.drawImage(image, sx, sy, sw, sh, 0, 24, dw, dh);
+
+					if (gridMode) {
+						ctx.font = "20px bold sans-serif";
+						ctx.fillStyle = "white";
+						let n = wrapText(item.name, 250, ctx);
+						ctx.fillText(n[0], 0, thumbH + 23);
+						if (n[1]) {
+							ctx.fillText(n[1], 0, thumbH + 45);
+						}
+
+						ctx.font = "18px sans-serif";
+						ctx.fillStyle = "white";
+						ctx.fillText(item.updatedTime.substr(0, 16), 0, thumbH + 64);
+					} else {
+						ctx.font = "20px bold sans-serif";
+						ctx.fillStyle = "white";
+						ctx.fillText(item.name, 0, 23);
+
+						ctx.font = "18px sans-serif";
+						ctx.fillStyle = "white";
+						ctx.fillText(item.updatedTime.substr(0, 16), 210, 50);
+					}
 					el.components.xycanvas.updateTexture();
-				};
-				image.src = item.thumbnailUrl;
-			});
+
+					if (!item.thumbnailUrl) return;
+					var image = new Image();
+					image.crossOrigin = "anonymous";
+					image.referrerPolicy = "origin-when-cross-origin";
+					image.onload = function () {
+						if (el.dataset.listPosition != position) {
+							return;
+						}
+						let py = gridMode ? 2 : 24;
+						let px = gridMode ? 2 : 0;
+						var dw = thumbW, dh = thumbH - py;
+						var sx = 0, sy = 0, sw = image.width, sh = image.height;
+						if (sh / sw > dh / dw) {
+							sy = (sh - dh / dw * sw) / 2;
+							sh -= sy * 2;
+						}
+						ctx.drawImage(image, sx, sy, sw, sh, px, py, dw, dh);
+
+						el.components.xycanvas.updateTexture();
+					};
+					image.src = item.thumbnailUrl;
+				});
+			}
 		});
 		videolist.el.addEventListener('clickitem', async (ev) => {
 			let pos = ev.detail.index;
@@ -184,8 +266,10 @@ AFRAME.registerComponent('media-selector', {
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
 				this._openList(item.storage, item.path);
+			} else if (window.openItem && openItem(item)) {
+				// opened
 			} else if (item.type == "folder" || item.type == "archive") {
-				this._openList(item.storage || this.data.storage, item.path);
+				this._openList(item.storage || this.data.storage, item.path, item.type == "archive");
 			} else {
 				this.el.sceneEl.systems["media-player"].playContent(item, this);
 			}
@@ -209,18 +293,28 @@ AFRAME.registerComponent('media-selector', {
 		this._byName('storage-button').setAttribute('values', storageNames.join(","));
 		this._byName('storage-button').addEventListener('change', ev => {
 			let storageAndPath = storageParams[ev.detail.index];
-			// this._openList(storageAndPath[0], storageAndPath[1]);
-			this.el.setAttribute('media-selector', { storage: storageAndPath[0], path: storageAndPath[1] || "" });
+			this._openList(storageAndPath[0], storageAndPath[1]);
 		});
+
+		if (this._byName('open-window-button')) {
+			this._byName('open-window-button').addEventListener('click', ev => {
+				this._openList(this.data.storage, this.data.path, true);
+			});
+		}
 
 		this._byName('fav-button').addEventListener('click', (e) => {
 			if (this.item) new LocalList("favoriteItems").addItem(this.item, this.data.storage);
 		});
-		this._byName('sort-name-button').addEventListener('click', (e) => {
-			this.setSort("name", (this.sortBy == "name" && this.sortOrder == "a") ? "d" : "a");
+
+		this._byName('parent-button').addEventListener('click', (e) => {
+			let p = this.data.path.replace(/\/[^/]+$/, '');
+			this._openList(this.data.storage, p);
 		});
-		this._byName('sort-updated-button').addEventListener('click', (e) => {
-			this.setSort("updated", (this.sortBy == "updated" && this.sortOrder == "d") ? "a" : "d");
+
+		this._byName('sort-option').setAttribute('values', ["Name", "New", "Size"].join(","));
+		this._byName('sort-option').addEventListener('change', ev => {
+			let field = ["name", "updated", "size"][ev.detail.index];
+			this.setSort(field, (this.sortBy == field && this.sortOrder == "a") ? "d" : "a");
 		});
 	},
 	update() {
@@ -229,13 +323,17 @@ AFRAME.registerComponent('media-selector', {
 		this.item = { type: "list", path: path, name: path };
 		this._loadList(path);
 	},
-	async _openList(storage, path) {
-		let mediaList = await instantiate('mediaListTemplate');
-		mediaList.setAttribute("media-selector", "path:" + path + (storage ? ";storage:" + storage : ""));
-		let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
-		mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
-		mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
-		adjustWindowPos(mediaList, true);
+	async _openList(storage, path, openWindow) {
+		if (openWindow || this.data.openWindow) {
+			let mediaList = await instantiate('mediaListTemplate');
+			let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
+			mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
+			mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
+			mediaList.setAttribute('window-locator', { applyCameraPos: false, updateRotation: false });
+			mediaList.setAttribute("media-selector", "path:" + path + (storage ? ";storage:" + storage : ""));
+		} else {
+			this.el.setAttribute("media-selector", "path:" + path + (storage ? ";storage:" + storage : ""));
+		}
 	},
 	setSort(sortBy, sortOrder) {
 		this.sortBy = sortBy;
@@ -358,7 +456,7 @@ AFRAME.registerComponent('media-player', {
 			});
 		} else {
 			dataElem = Object.assign(document.createElement("video"), {
-				autoplay: true, controls: false, loop: this.data.loop, id: "dummyid"
+				autoplay: true, controls: false, loop: this.data.loop, id: "dummyid", crossOrigin: ""
 			});
 			dataElem.addEventListener('loadeddata', ev => {
 				dataElem.playbackRate = this.data.playbackRate;
@@ -484,7 +582,7 @@ AFRAME.registerSystem('media-player', {
 			(await instantiate('mediaPlayerTemplate')).addEventListener('loaded', e => {
 				this.currentPlayer.mediaSelector = mediaSelector;
 				this.currentPlayer.playContent(item, mediaSelector);
-				adjustWindowPos(this.currentPlayer.el);
+				// adjustWindowPos(this.currentPlayer.el);
 			}, false);
 		} else {
 			this.currentPlayer.mediaSelector = mediaSelector;
@@ -634,18 +732,18 @@ AFRAME.registerComponent('stereo-texture', {
 	update() {
 		this._reset();
 		if (this.el.getObject3D("mesh") === null) return;
-		let luv = this._makeObj(1, "stereo-left").geometry.getAttribute("uv");
-		let ruv = this._makeObj(2, "stereo-right").geometry.getAttribute("uv");
+		let lg = this._makeObj(1, "stereo-left").geometry;
+		let rg = this._makeObj(2, "stereo-right").geometry;
+		let luv = lg.getAttribute("uv");
+		let ruv = rg.getAttribute("uv");
 		let d = this.data.swap ? 0.5 : 0;
 		if (this.data.mode == "side-by-side") {
-			luv.setArray(luv.array.map((v, i) => i % 2 == 0 ? v / 2 + d : v));
-			ruv.setArray(ruv.array.map((v, i) => i % 2 == 0 ? v / 2 + 0.5 - d : v));
+			lg.setAttribute("uv", new THREE.BufferAttribute(luv.array.map((v, i) => i % 2 == 0 ? v / 2 + d : v), luv.itemSize, luv.normalized));
+			rg.setAttribute("uv", new THREE.BufferAttribute(ruv.array.map((v, i) => i % 2 == 0 ? v / 2 + 0.5 - d : v), ruv.itemSize, ruv.normalized));
 		} else if (this.data.mode == "top-and-bottom") {
-			luv.setArray(luv.array.map((v, i) => i % 2 == 1 ? v / 2 + 0.5 - d : v));
-			ruv.setArray(ruv.array.map((v, i) => i % 2 == 1 ? v / 2 + d : v));
+			lg.setAttribute("uv", new THREE.BufferAttribute(luv.array.map((v, i) => i % 2 == 1 ? v / 2 + 0.5 - d : v), luv.itemSize, luv.normalized));
+			rg.setAttribute("uv", new THREE.BufferAttribute(ruv.array.map((v, i) => i % 2 == 1 ? v / 2 + d : v), ruv.itemSize, ruv.normalized));
 		}
-		luv.needsUpdate = true;
-		ruv.needsUpdate = true;
 
 		this.el.getObject3D("mesh").visible = false;
 		this._checkVrMode();
