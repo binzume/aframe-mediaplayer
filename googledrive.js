@@ -67,8 +67,8 @@ class GoogleDrive {
     }
     async getFileBlob(fileId) {
         let url = "https://www.googleapis.com/drive/v3/files/" + fileId + "?alt=media";
-        let headers = {'Authorization': 'Bearer ' + gapi.auth.getToken().access_token};
-        let response = await fetch(url, {headers: new Headers(headers)});
+        let headers = { 'Authorization': 'Bearer ' + gapi.auth.getToken().access_token };
+        let response = await fetch(url, { headers: new Headers(headers) });
         if (!response.ok) throw new Error(response.statusText);
         return await response.blob();
     }
@@ -106,13 +106,16 @@ class FileList {
         await this._load();
         return this._getOrNull(position);
     }
+    async getFileUrl(file) {
+        return URL.createObjectURL(await this.drive.getFileBlob(file.id));
+    }
     async _load() {
         if (this.loadPromise !== null) return await this.loadPromise;
         this.loadPromise = (async () => {
             let result = await this.drive.getFiles(this.itemPath, 200, this.cursor, this.driveOption);
             this.cursor = result.nextPageToken;
             let files = result.files.map(f => ({
-                contentType: f.mimeType == "application/vnd.google-apps.folder" ? "directory" : f.mimeType,
+                type: f.mimeType == "application/vnd.google-apps.folder" ? "folder" : f.mimeType,
                 duration: 0,
                 id: f.id,
                 path: f.id,
@@ -121,7 +124,7 @@ class FileList {
                 tags: [this.itemPath],
                 thumbnailUrl: (f.thumbnailLink && !f.thumbnailLink.startsWith("https://docs.google.com/")) ? f.thumbnailLink : null,
                 updatedTime: f.modifiedTime,
-                url: (f.thumbnailLink) ? f.thumbnailLink.replace(/=s\d+/, "=s2048") : null,
+                url: null, // use getFileUrl()
             }));
             this.items = this.items.concat(files);
 
@@ -155,7 +158,7 @@ async function gapiLoaded() {
     storageAccessors["GoogleDrive"] = {
         name: "Google Drive",
         root: 'root',
-        shortcuts: [],
+        shortcuts: {},
         getList: (folder, options) => new FileList(folder, options, drive)
     };
 }

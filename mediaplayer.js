@@ -263,6 +263,9 @@ AFRAME.registerComponent('media-selector', {
 			let pos = ev.detail.index;
 			this.currentPos = pos | 0;
 			let item = await this.itemlist.get(pos);
+			if (item.url == null && item.type.includes("/")) {
+				item = Object.assign({}, item, { url: await this.itemlist.getFileUrl(item) })
+			}
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
 				this._openList(item.storage, item.path);
@@ -277,7 +280,7 @@ AFRAME.registerComponent('media-selector', {
 
 		let storageNames = [];
 		let storageParams = [];
-		for (let k in this.system.storageAccessors) {
+		for (let k of Object.keys(this.system.storageAccessors)) {
 			let sa = this.system.storageAccessors[k];
 			if (sa.shortcuts && Object.keys(sa.shortcuts).length) {
 				Object.keys(sa.shortcuts).forEach(n => {
