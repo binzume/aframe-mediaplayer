@@ -263,8 +263,31 @@ AFRAME.registerComponent('media-selector', {
 			let pos = ev.detail.index;
 			this.currentPos = pos | 0;
 			let item = await this.itemlist.get(pos);
-			if (item.url == null && item.type.includes("/")) {
-				item = Object.assign({}, item, { url: await this.itemlist.getFileUrl(item) })
+			if (item.url == null && item.type.includes("video/mp4") && typeof MP4Player !== 'undefined') {
+				let drive = this.itemlist;
+				let loadMedia = (el) => {
+					let options = {
+						opener: {
+							async open(pos) {
+								return (await drive.fetch(item, pos)).body.getReader();
+							}
+						}
+					};
+					new MP4Player(el).setBufferedReader(new BufferedReader(options));
+				};
+				item = Object.assign({ loadMedia: loadMedia }, item);
+			} else if (item.url == null && item.type.startsWith("application/")) {
+				let loadMedia = async (el) => {
+					el.crossOrigin = "anonymous";
+					el.referrerPolicy = "origin-when-cross-origin";
+					el.src = item.thumbnailUrl;
+				};
+				item = Object.assign({}, item, { loadMedia: loadMedia, type: 'image/jpeg' });
+			} else if (item.url == null && item.type.includes("/")) {
+				let loadMedia = async (el) => {
+					el.src = URL.createObjectURL(await (await this.itemlist.fetch(item)).blob());
+				};
+				item = Object.assign({ loadMedia: loadMedia }, item);
 			}
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
@@ -299,14 +322,13 @@ AFRAME.registerComponent('media-selector', {
 			this._openList(storageAndPath[0], storageAndPath[1]);
 		});
 
-		if (this._byName('open-window-button')) {
-			this._byName('open-window-button').addEventListener('click', ev => {
+        this._byName('option-menu').setAttribute('xyselect', 'select', -1);
+		this._byName('option-menu').addEventListener('change', ev => {
+			if (ev.detail.index == 0) {
 				this._openList(this.data.storage, this.data.path, true);
-			});
-		}
-
-		this._byName('fav-button').addEventListener('click', (e) => {
-			if (this.item) new LocalList("favoriteItems").addItem(this.item, this.data.storage);
+			} else if (ev.detail.index == 1) {
+				if (this.item) new LocalList("favoriteItems").addItem(this.item, this.data.storage);
+			}
 		});
 
 		this._byName('parent-button').addEventListener('click', (e) => {
@@ -454,7 +476,7 @@ AFRAME.registerComponent('media-player', {
 			dataElem = Object.assign(document.createElement("img"), { crossOrigin: "" });
 			dataElem.addEventListener('load', ev => {
 				this.resize(dataElem.naturalWidth, dataElem.naturalHeight);
-				this.screen.setAttribute('material', { shader: "flat", src: "#" + dataElem.id, transparent: f.url.endsWith(".png"), npot: true });
+				this.screen.setAttribute('material', { shader: "flat", src: "#" + dataElem.id, transparent: (f.url || f.type).endsWith("png"), npot: true });
 				this.el.dispatchEvent(new CustomEvent('media-player-loaded', { detail: { item: f, event: ev } }));
 			});
 		} else {
@@ -473,7 +495,11 @@ AFRAME.registerComponent('media-player', {
 			});
 		}
 		dataElem.id = "imageData" + new Date().getTime().toString(16) + Math.floor(Math.random() * 65536).toString(16);
-		dataElem.src = f.url;
+		if (f.loadMedia) {
+			f.loadMedia(dataElem);
+		} else {
+			dataElem.src = f.url;
+		}
 
 		// replace
 		var parent = (this.mediaEl || document.querySelector(this.data.loadingSrc)).parentNode;
@@ -489,6 +515,12 @@ AFRAME.registerComponent('media-player', {
 					this.touchToPlay = true;
 				});
 			}
+		}
+	},
+	tick() {
+		// workaround for https://bugs.chromium.org/p/chromium/issues/detail?id=1107578
+		if (this.mediaEl && this.mediaEl.tagName == "VIDEO" && this.mediaEl.readyState >= this.mediaEl.HAVE_CURRENT_DATA) {
+			this.screen.components.material.material.map.needsUpdate = true;
 		}
 	},
 	setStereoMode(idx) {
@@ -911,7 +943,7 @@ AFRAME.registerShader('msdf2', {
 		#include <fog_vertex>
 	}`,
 	fragmentShader: `
-	#extension GL_OES_standard_derivatives : enable
+	// #extension GL_OES_standard_derivatives : enable
 	uniform vec3 diffuse;
 	uniform float opacity;
 	uniform vec2 msdfUnit;
@@ -928,8 +960,8 @@ AFRAME.registerShader('msdf2', {
 	}
 	void main() {
 		#include <clipping_planes_fragment>
-		vec4 sample = texture2D( src, vUv );
-		float sigDist = median(sample.r, sample.g, sample.b) - 0.5;
+		vec4 texcol = texture2D( src, vUv );
+		float sigDist = median(texcol.r, texcol.g, texcol.b) - 0.5;
 		sigDist *= dot(msdfUnit, 0.5/fwidth(vUv));
 
 		vec4 diffuseColor = vec4( diffuse, opacity * clamp(sigDist + 0.5, 0.0, 1.0));

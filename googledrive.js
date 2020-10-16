@@ -65,15 +65,27 @@ class GoogleDrive {
             fileId: fileId
         }).status == 204;
     }
+    getFileMediaUrl(fileId) {
+        return "https://www.googleapis.com/drive/v3/files/" + fileId + "?alt=media";
+    }
+    async fetch(fileId, start, end) {
+        let url = this.getFileMediaUrl(fileId);
+        let headers = { 'Authorization': 'Bearer ' + gapi.auth.getToken().access_token };
+        if (start) {
+            headers.range = 'bytes=' + start + '-' + (end || '');
+        }
+        let response = await fetch(url, { headers: new Headers(headers) });
+        if (!response.ok) throw new Error(response.statusText);
+        return response;
+    }
     async getFileBlob(fileId) {
-        let url = "https://www.googleapis.com/drive/v3/files/" + fileId + "?alt=media";
+        let url = this.getFileMediaUrl(fileId);
         let headers = { 'Authorization': 'Bearer ' + gapi.auth.getToken().access_token };
         let response = await fetch(url, { headers: new Headers(headers) });
         if (!response.ok) throw new Error(response.statusText);
         return await response.blob();
     }
 }
-
 class FileList {
     constructor(folder, options, drive) {
         this.itemPath = folder;
@@ -108,6 +120,9 @@ class FileList {
     }
     async getFileUrl(file) {
         return URL.createObjectURL(await this.drive.getFileBlob(file.id));
+    }
+    fetch(file, start, end) {
+        return this.drive.fetch(file.id, start, end);
     }
     async _load() {
         if (this.loadPromise !== null) return await this.loadPromise;
@@ -149,6 +164,10 @@ async function gapiLoaded() {
         "http://localhost:8080": "86954684848-e879qasd2bnnr4pcdiviu68q423gbq4m.apps.googleusercontent.com",
         "https://binzume.github.io": "86954684848-okobt1r6kedh2cskabcgmbbqe0baphjb.apps.googleusercontent.com"
     };
+    if (!clientIds[location.origin]) {
+        console.log("clientId not found : " + location.origin);
+        return;
+    }
     let drive = new GoogleDrive(clientIds[location.origin]);
     if (!await drive.init(false)) {
         console.log("drive unavailable");
