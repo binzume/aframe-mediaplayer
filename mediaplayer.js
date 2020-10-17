@@ -21,8 +21,8 @@ class ItemList {
 			this.apiUrl = m[1];
 		}
 	}
-	async init() {
-		await this._load(0);
+	init() {
+		return this._load(0);
 	}
 	async get(position) {
 		let item = this._getOrNull(position);
@@ -110,7 +110,51 @@ class LocalList {
 	}
 }
 
+class StorageList {
+	constructor(accessors) {
+		this.accessors = accessors;
+		this.name = "Storages";
+		this.items = [];
+		this.size = 0;
+		this._update();
+	}
+	init() {
+		return this.get(0)
+	}
+	get(position) {
+		this._update();
+		return Promise.resolve(this.items[position]);
+	}
+	_update() {
+		let items = [];
+		for (let [k, sa] of Object.entries(this.accessors)) {
+			if (sa.shortcuts && Object.keys(sa.shortcuts).length) {
+				Object.keys(sa.shortcuts).forEach(n => {
+					items.push({ name: n, type: 'folder', storage: k, path: sa.shortcuts[n], updatedTime: '' });
+				});
+			} else {
+				items.push({ name: sa.name, type: 'folder', storage: k, path: sa.root, updatedTime: '' });
+			}
+		}
+		this.items = items;
+		this.size = items.length;
+	}
+	getList(storage, path, options) {
+		let accessor = this.accessors[storage];
+		if (!accessor) {
+			return null;
+		}
+		return accessor.getList(path || accessor.root, options);
+	}
+}
+
 window.storageAccessors = Object.assign(window.storageAccessors || {}, {
+	"Storages": {
+		name: "Storages",
+		root: "",
+		shortcuts: {},
+		getList: (folder, options) => new StorageList(window.storageAccessors, options)
+	},
 	"Favs": {
 		name: "Favorites",
 		root: "favoriteItems",
@@ -124,6 +168,8 @@ window.storageAccessors = Object.assign(window.storageAccessors || {}, {
 		getList: (folder, options) => new ItemList(folder, options)
 	}
 });
+
+let storageList = new StorageList(window.storageAccessors);
 
 AFRAME.registerComponent('media-selector', {
 	schema: {
@@ -196,7 +242,8 @@ AFRAME.registerComponent('media-selector', {
 						if (char == '\n' || ctx.measureText(lines[ln] + char).width > textWidth) {
 							lines.push('');
 							ln++;
-						} else {
+						}
+						if (char != '\n') {
 							lines[ln] += char;
 						}
 					}
@@ -235,18 +282,14 @@ AFRAME.registerComponent('media-selector', {
 					}
 					el.components.xycanvas.updateTexture();
 
-					if (!item.thumbnailUrl) return;
-					var image = new Image();
-					image.crossOrigin = "anonymous";
-					image.referrerPolicy = "origin-when-cross-origin";
-					image.onload = function () {
+					let drawThumbnail = (image) => {
 						if (el.dataset.listPosition != position) {
 							return;
 						}
 						let py = gridMode ? 2 : 24;
 						let px = gridMode ? 2 : 0;
-						var dw = thumbW, dh = thumbH - py;
-						var sx = 0, sy = 0, sw = image.width, sh = image.height;
+						let dw = thumbW, dh = thumbH - py;
+						let sx = 0, sy = 0, sw = image.width, sh = image.height;
 						if (sh / sw > dh / dw) {
 							sy = (sh - dh / dw * sw) / 2;
 							sh -= sy * 2;
@@ -254,6 +297,21 @@ AFRAME.registerComponent('media-selector', {
 						ctx.drawImage(image, sx, sy, sw, sh, px, py, dw, dh);
 
 						el.components.xycanvas.updateTexture();
+					};
+
+					if (!item.thumbnailUrl) {
+						if (item.type == 'folder' || item.type == 'list') {
+							drawThumbnail(document.querySelector('#mediaplayer-icon-folder'));
+						} else {
+							drawThumbnail(document.querySelector('#mediaplayer-icon-file'));
+						}
+						return;
+					}
+					let image = new Image();
+					image.crossOrigin = "anonymous";
+					image.referrerPolicy = "origin-when-cross-origin";
+					image.onload = function () {
+						drawThumbnail(image);
 					};
 					image.src = item.thumbnailUrl;
 				});
@@ -301,28 +359,11 @@ AFRAME.registerComponent('media-selector', {
 			}
 		});
 
-		let storageNames = [];
-		let storageParams = [];
-		for (let k of Object.keys(this.system.storageAccessors)) {
-			let sa = this.system.storageAccessors[k];
-			if (sa.shortcuts && Object.keys(sa.shortcuts).length) {
-				Object.keys(sa.shortcuts).forEach(n => {
-					storageNames.push(n);
-					storageParams.push([k, sa.shortcuts[n]]);
-				});
-
-			} else {
-				storageNames.push(sa.name);
-				storageParams.push([k, sa.root]);
-			}
-		}
-		this._byName('storage-button').setAttribute('values', storageNames.join(","));
-		this._byName('storage-button').addEventListener('change', ev => {
-			let storageAndPath = storageParams[ev.detail.index];
-			this._openList(storageAndPath[0], storageAndPath[1]);
+		this._byName('storage-button').addEventListener('click', ev => {
+			this.el.setAttribute("media-selector", { path: '_dummy_', storage: '_dummy_' });
 		});
 
-        this._byName('option-menu').setAttribute('xyselect', 'select', -1);
+		this._byName('option-menu').setAttribute('xyselect', 'select', -1);
 		this._byName('option-menu').addEventListener('change', ev => {
 			if (ev.detail.index == 0) {
 				this._openList(this.data.storage, this.data.path, true);
@@ -367,8 +408,7 @@ AFRAME.registerComponent('media-selector', {
 	},
 	_loadList(path) {
 		this.currentPos = 0;
-		let accessor = this.system.storageAccessors[this.data.storage || "MEDIA"];
-		this.itemlist = accessor.getList(path || accessor.root, { orderBy: this.sortBy, order: this.sortOrder });
+		this.itemlist = storageList.getList(this.data.storage, path, { orderBy: this.sortBy, order: this.sortOrder }) || storageList;
 		this.itemlist.init().then(() => {
 			var mediaList = this._byName('medialist').components.xylist;
 			mediaList.setContents(this.itemlist, this.itemlist.size);
@@ -403,7 +443,7 @@ AFRAME.registerComponent('media-player', {
 		src: { default: "" },
 		loop: { default: true },
 		playbackRate: { default: 1.0 },
-		loadingSrc: { default: "#loading" },
+		loadingSrc: { default: "#mediaplayer-loading" },
 		mediaController: { default: "media-controller" },
 		screen: { default: ".screen" }
 	},
@@ -581,10 +621,6 @@ AFRAME.registerComponent('media-player', {
 	}
 });
 
-AFRAME.registerSystem('media-selector', {
-	storageAccessors: window.storageAccessors
-});
-
 AFRAME.registerSystem('media-player', {
 	shortcutKeys: true,
 	init() {
@@ -617,7 +653,6 @@ AFRAME.registerSystem('media-player', {
 			(await instantiate('mediaPlayerTemplate')).addEventListener('loaded', e => {
 				this.currentPlayer.mediaSelector = mediaSelector;
 				this.currentPlayer.playContent(item, mediaSelector);
-				// adjustWindowPos(this.currentPlayer.el);
 			}, false);
 		} else {
 			this.currentPlayer.mediaSelector = mediaSelector;
