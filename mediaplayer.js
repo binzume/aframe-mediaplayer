@@ -4,16 +4,28 @@ if (typeof AFRAME === 'undefined') {
 	throw 'AFRAME is not loaded.';
 }
 
-class ItemList {
+class BaseFileList {
 	constructor(itemPath, options) {
 		this.itemPath = itemPath;
 		this.options = options || {};
 		this.size = -1;
 		this.name = "";
 		this.thumbnailUrl = null;
+	}
+	init() {
+		return this.get(0)
+	}
+	async get(position) {
+		throw 'not implemented';
+	}
+}
 
+class ItemList extends BaseFileList {
+	constructor(apiUrl, itemPath, options) {
+		super(itemPath, options);
+		this.thumbnailUrl = null;
 		this.offset = 0;
-		this.apiUrl = "../api/";
+		this.apiUrl = apiUrl;
 		this.loadPromise = null;
 		this.items = [];
 		let m = window.location.search.match(/api=(.*)/);
@@ -61,16 +73,15 @@ class ItemList {
 	}
 }
 
-class LocalList {
-	constructor(listName, options) {
-		this.itemPath = listName;
-		this.name = "Favorites";
-		this.items = [];
-		let s = localStorage.getItem(this.itemPath);
-		if (s !== null) {
-			this.items = JSON.parse(s);
-		}
-		if (options && options.orderBy) {
+class OnMemoryFileList extends BaseFileList {
+	constructor(items, options) {
+		super('', options);
+		this.setItems(items);
+	}
+	setItems(items) {
+		this.items = items;
+		let options = this.options;
+		if (options.orderBy) {
 			this._setSort(options.orderBy, options.order);
 		}
 		this.size = this.items.length;
@@ -81,22 +92,8 @@ class LocalList {
 	get(position) {
 		return Promise.resolve(this.items[position]);
 	}
-	addItem(item, storage = null) {
-		if (this.contains(item.name)) return;
-		this.items.push(item);
-		this.size = this.items.length;
-		localStorage.setItem(this.itemPath, JSON.stringify(this.items));
-	}
 	contains(name) {
 		return this.items.some(item => item.name === name);
-	}
-	clear() {
-		this.items = [];
-		this.size = 0;
-		localStorage.removeItem(this.itemPath);
-	}
-	_getOrNull(position) {
-		return this.items[position];
 	}
 	_setSort(orderBy, order) {
 		let r = order === "a" ? 1 : -1;
@@ -110,20 +107,40 @@ class LocalList {
 	}
 }
 
-class StorageList {
-	constructor(accessors) {
-		this.accessors = accessors;
-		this.name = "Storages";
+class LocalList extends OnMemoryFileList {
+	constructor(listName, options) {
+		let items = [];
+		let s = localStorage.getItem(listName);
+		if (s !== null) {
+			items = JSON.parse(s);
+		}
+		super(items, options);
+		this.itemPath = listName;
+		this.name = "Favorites";
+	}
+	addItem(item, storage = null) {
+		if (this.contains(item.name)) return;
+		this.items.push(item);
+		this.setItems(this.items);
+		localStorage.setItem(this.itemPath, JSON.stringify(this.items));
+	}
+	clear() {
 		this.items = [];
 		this.size = 0;
-		this._update();
+		localStorage.removeItem(this.itemPath);
 	}
-	init() {
-		return this.get(0)
+	_getOrNull(position) {
+		return this.items[position];
 	}
-	get(position) {
+}
+
+class StorageList extends OnMemoryFileList {
+	constructor(accessors, options) {
+		super([], options);
+		this.accessors = accessors;
+		this.itemPath = '/';
+		this.name = "Storages";
 		this._update();
-		return Promise.resolve(this.items[position]);
 	}
 	_update() {
 		let items = [];
@@ -136,8 +153,7 @@ class StorageList {
 				items.push({ name: sa.name, type: 'folder', storage: k, path: sa.root, updatedTime: '' });
 			}
 		}
-		this.items = items;
-		this.size = items.length;
+		this.setItems(items);
 	}
 	getList(storage, path, options) {
 		let accessor = this.accessors[storage];
@@ -149,12 +165,6 @@ class StorageList {
 }
 
 window.storageAccessors = Object.assign(window.storageAccessors || {}, {
-	"Storages": {
-		name: "Storages",
-		root: "",
-		shortcuts: {},
-		getList: (folder, options) => new StorageList(window.storageAccessors, options)
-	},
 	"Favs": {
 		name: "Favorites",
 		root: "favoriteItems",
@@ -165,7 +175,7 @@ window.storageAccessors = Object.assign(window.storageAccessors || {}, {
 		name: "Media",
 		root: "tags",
 		shortcuts: { "Tags": "tags", "All": "tags/.ALL_ITEMS", "Volumes": "volumes" },
-		getList: (folder, options) => new ItemList(folder, options)
+		getList: (folder, options) => new ItemList("../api/", folder, options)
 	}
 });
 
@@ -173,12 +183,12 @@ let storageList = new StorageList(window.storageAccessors);
 
 AFRAME.registerComponent('media-selector', {
 	schema: {
-		storage: { default: "MEDIA" },
+		storage: { default: "" },
 		path: { default: "" },
 		openWindow: { default: false }
 	},
 	init() {
-		this.itemlist = new ItemList();
+		this.itemlist = storageList;
 		this.currentPos = -1;
 		this.sortOrder = null;
 		this.sortBy = null;
@@ -360,7 +370,7 @@ AFRAME.registerComponent('media-selector', {
 		});
 
 		this._byName('storage-button').addEventListener('click', ev => {
-			this.el.setAttribute("media-selector", { path: '_dummy_', storage: '_dummy_' });
+			this.el.setAttribute("media-selector", { path: '', storage: '_dummy_' });
 		});
 
 		this._byName('option-menu').setAttribute('xyselect', 'select', -1);
@@ -368,7 +378,7 @@ AFRAME.registerComponent('media-selector', {
 			if (ev.detail.index == 0) {
 				this._openList(this.data.storage, this.data.path, true);
 			} else if (ev.detail.index == 1) {
-				if (this.item) new LocalList("favoriteItems").addItem(this.item, this.data.storage);
+				new LocalList("favoriteItems").addItem(this.item, this.data.storage);
 			}
 		});
 
@@ -386,7 +396,7 @@ AFRAME.registerComponent('media-selector', {
 	update() {
 		let path = this.data.path;
 		console.log("load list: ", path);
-		this.item = { type: "list", path: path, name: path };
+		this.item = { type: "list", path: path, name: path, storage: this.data.storage };
 		this._loadList(path);
 	},
 	async _openList(storage, path, openWindow) {
@@ -408,7 +418,11 @@ AFRAME.registerComponent('media-selector', {
 	},
 	_loadList(path) {
 		this.currentPos = 0;
-		this.itemlist = storageList.getList(this.data.storage, path, { orderBy: this.sortBy, order: this.sortOrder }) || storageList;
+		this.itemlist = storageList.getList(this.data.storage, path, { orderBy: this.sortBy, order: this.sortOrder });
+		if (!this.itemlist) {
+			storageList._setSort(this.sortBy, this.sortOrder);
+			this.itemlist = storageList;
+		}
 		this.itemlist.init().then(() => {
 			var mediaList = this._byName('medialist').components.xylist;
 			mediaList.setContents(this.itemlist, this.itemlist.size);
@@ -914,7 +928,6 @@ AFRAME.registerPrimitive('a-cubemapbox', {
 		depth: 'geometry.depth',
 	}
 });
-
 
 
 AFRAME.registerComponent('atlas', {
