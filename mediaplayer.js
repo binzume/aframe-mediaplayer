@@ -331,36 +331,22 @@ AFRAME.registerComponent('media-selector', {
 			let pos = ev.detail.index;
 			this.currentPos = pos | 0;
 			let item = await this.itemlist.get(pos);
-			if (item.url == null && item.type.includes("video/mp4") && typeof MP4Player !== 'undefined') {
-				let drive = this.itemlist;
-				let loadMedia = (el) => {
-					let options = {
-						opener: {
-							async open(pos) {
-								return (await drive.fetch(item, pos)).body.getReader();
-							}
-						}
-					};
-					new MP4Player(el).setBufferedReader(new BufferedReader(options));
-				};
-				item = Object.assign({ loadMedia: loadMedia }, item);
-			} else if (item.url == null && item.type.startsWith("application/")) {
+			if (item.url == null && item.type.startsWith("application/")) {
 				let loadMedia = async (el) => {
 					el.crossOrigin = "anonymous";
 					el.referrerPolicy = "origin-when-cross-origin";
 					el.src = item.thumbnailUrl;
 				};
 				item = Object.assign({}, item, { loadMedia: loadMedia, type: 'image/jpeg' });
-			} else if (item.url == null && item.type.includes("/")) {
-				let loadMedia = async (el) => {
-					el.src = URL.createObjectURL(await (await this.itemlist.fetch(item)).blob());
-				};
-				item = Object.assign({ loadMedia: loadMedia }, item);
+			}
+			if (item.url == null && item.size > 0) {
+				let list = this.itemlist;
+				item = Object.assign({ fetch: (pos) => list.fetch(item, pos) }, item);
 			}
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
 				this._openList(item.storage, item.path);
-			} else if (window.openItem && openItem(item)) {
+			} else if (window.appManager && appManager.openContent(item)) {
 				// opened
 			} else if (item.type == "folder" || item.type == "archive") {
 				this._openList(item.storage || this.data.storage, item.path, item.type == "archive");
@@ -400,8 +386,8 @@ AFRAME.registerComponent('media-selector', {
 		this._loadList(path);
 	},
 	async _openList(storage, path, openWindow) {
-		if (openWindow || this.data.openWindow) {
-			let mediaList = await instantiate('mediaListTemplate');
+		if ((openWindow || this.data.openWindow) && window.appManager) {
+			let mediaList = await window.appManager.launch('mediaListTemplate');
 			let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
 			mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
 			mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
@@ -423,10 +409,12 @@ AFRAME.registerComponent('media-selector', {
 			storageList._setSort(this.sortBy, this.sortOrder);
 			this.itemlist = storageList;
 		}
+		this.el.setAttribute("title", "Loading...");
+		let mediaList = this._byName('medialist').components.xylist;
+		mediaList.setContents([]);
 		this.itemlist.init().then(() => {
-			var mediaList = this._byName('medialist').components.xylist;
 			mediaList.setContents(this.itemlist, this.itemlist.size);
-			this.el.setAttribute("xywindow", "title", this.itemlist.name);
+			this.el.setAttribute("title", this.itemlist.name);
 			this.item.name = this.itemlist.name;
 			this.item.thumbnailUrl = this.itemlist.thumbnailUrl;
 		});
@@ -549,8 +537,19 @@ AFRAME.registerComponent('media-player', {
 			});
 		}
 		dataElem.id = "imageData" + new Date().getTime().toString(16) + Math.floor(Math.random() * 65536).toString(16);
-		if (f.loadMedia) {
+		if (!f.url && f.type.startsWith("video/mp4") && typeof MP4Player !== 'undefined') {
+			let options = {
+				opener: {
+					async open(pos) {
+						return (await f.fetch(pos)).body.getReader();
+					}
+				}
+			};
+			new MP4Player(dataElem).setBufferedReader(new BufferedReader(options));
+		} else if (f.loadMedia) {
 			f.loadMedia(dataElem);
+		} else if (!f.url && f.fetch) {
+			(async () => dataElem.src = URL.createObjectURL(await (await f.fetch()).blob()))();
 		} else {
 			dataElem.src = f.url;
 		}
@@ -664,7 +663,7 @@ AFRAME.registerSystem('media-player', {
 	},
 	async playContent(item, mediaSelector) {
 		if (this.currentPlayer === null) {
-			(await instantiate('mediaPlayerTemplate')).addEventListener('loaded', e => {
+			(await window.appManager.launch('mediaPlayerTemplate')).addEventListener('loaded', e => {
 				this.currentPlayer.mediaSelector = mediaSelector;
 				this.currentPlayer.playContent(item, mediaSelector);
 			}, false);
