@@ -67,6 +67,9 @@ class ItemList extends BaseFileList {
 			this.loadPromise = null;
 		}
 	}
+	getParentPath() {
+		return this.itemPath.replace(/\/[^/]+$/, '');
+	}
 	_getOrNull(position) {
 		if (position < this.offset || position >= this.offset + this.items.length) return null;
 		return this.items[position - this.offset];
@@ -92,8 +95,8 @@ class OnMemoryFileList extends BaseFileList {
 	get(position) {
 		return Promise.resolve(this.items[position]);
 	}
-	contains(name) {
-		return this.items.some(item => item.name === name);
+	contains(item) {
+		return this.items.some(i => i.storage === item.storage && i.path === item.path);
 	}
 	_setSort(orderBy, order) {
 		let r = order === "a" ? 1 : -1;
@@ -119,8 +122,14 @@ class LocalList extends OnMemoryFileList {
 		this.name = "Favorites";
 	}
 	addItem(item, storage = null) {
-		if (this.contains(item.name)) return;
+		if (this.contains(item)) return;
 		this.items.push(item);
+		this.setItems(this.items);
+		localStorage.setItem(this.itemPath, JSON.stringify(this.items));
+	}
+	removeItem(item, storage = null) {
+		let s = storage || item.storage, path = item.path;
+		this.items = this.items.filter(i => i.storage != s || i.path != path);
 		this.setItems(this.items);
 		localStorage.setItem(this.itemPath, JSON.stringify(this.items));
 	}
@@ -137,9 +146,9 @@ class LocalList extends OnMemoryFileList {
 class StorageList extends OnMemoryFileList {
 	constructor(accessors, options) {
 		super([], options);
-		this.accessors = accessors;
+		this.accessors = accessors || {};
 		this.itemPath = '/';
-		this.name = "Storages";
+		this.name = "Storage";
 		this._update();
 	}
 	_update() {
@@ -162,24 +171,35 @@ class StorageList extends OnMemoryFileList {
 		}
 		return accessor.getList(path || accessor.root, options);
 	}
+	addStorage(id, data) {
+		this.accessors[id] = data;
+		this._update();
+	}
 }
 
-window.storageAccessors = Object.assign(window.storageAccessors || {}, {
-	"Favs": {
-		name: "Favorites",
-		root: "favoriteItems",
-		shortcuts: {},
-		getList: (folder, options) => new LocalList("favoriteItems", options)
-	},
-	"MEDIA": {
+let storageList = new StorageList(window.storageAccessors);
+window.storageAccessors = new Proxy({}, {
+	// NOTE: Storage can only be accessed via storageList.
+	set: function (obj, prop, value) {
+		storageList.addStorage(prop, value);
+		return true;
+	}
+});
+
+storageList.addStorage('Favs', {
+	name: "Favorites",
+	root: "favoriteItems",
+	shortcuts: {},
+	getList: (folder, options) => new LocalList("favoriteItems", options)
+});
+if (!location.href.includes('.github.io')) { // TODO
+	storageList.addStorage('MEDIA', {
 		name: "Media",
 		root: "tags",
 		shortcuts: { "Tags": "tags", "All": "tags/.ALL_ITEMS", "Volumes": "volumes" },
 		getList: (folder, options) => new ItemList("../api/", folder, options)
-	}
-});
-
-let storageList = new StorageList(window.storageAccessors);
+	});
+}
 
 AFRAME.registerComponent('media-selector', {
 	schema: {
@@ -278,17 +298,21 @@ AFRAME.registerComponent('media-selector', {
 							ctx.fillText(n[1], 0, thumbH + 45);
 						}
 
-						ctx.font = "18px sans-serif";
-						ctx.fillStyle = "white";
-						ctx.fillText(item.updatedTime.substr(0, 16), 0, thumbH + 64);
+						if (item.updatedTime) {
+							ctx.font = "18px sans-serif";
+							ctx.fillStyle = "white";
+							ctx.fillText(item.updatedTime.substr(0, 16), 0, thumbH + 64);
+						}
 					} else {
 						ctx.font = "20px bold sans-serif";
 						ctx.fillStyle = "white";
 						ctx.fillText(item.name, 0, 23);
 
-						ctx.font = "18px sans-serif";
-						ctx.fillStyle = "white";
-						ctx.fillText(item.updatedTime.substr(0, 16), 210, 50);
+						if (item.updatedTime) {
+							ctx.font = "18px sans-serif";
+							ctx.fillStyle = "white";
+							ctx.fillText(item.updatedTime.substr(0, 16), 210, 50);
+						}
 					}
 					el.components.xycanvas.updateTexture();
 
@@ -332,16 +356,16 @@ AFRAME.registerComponent('media-selector', {
 			this.currentPos = pos | 0;
 			let item = await this.itemlist.get(pos);
 			if (item.url == null && item.type.startsWith("application/")) {
-				let loadMedia = async (el) => {
-					el.crossOrigin = "anonymous";
-					el.referrerPolicy = "origin-when-cross-origin";
-					el.src = item.thumbnailUrl;
-				};
-				item = Object.assign({}, item, { loadMedia: loadMedia, type: 'image/jpeg' });
+				// HACK: for Google drive.
+				let url = item.thumbnailUrl;
+				if (url.includes('.googleusercontent.com/')) {
+					url = url.replace(/=s\d+$/, '=s1600');
+				}
+				item = Object.assign({}, item, { fetch: () => fetch(url), type: 'image/jpeg' });
 			}
-			if (item.url == null && item.size > 0) {
+			if (item.url == null && item.size > 0 && list.fetch) {
 				let list = this.itemlist;
-				item = Object.assign({ fetch: (pos) => list.fetch(item, pos) }, item);
+				item = Object.assign({ fetch: (start, end) => list.fetch(item, start, end) }, item);
 			}
 			console.log(item);
 			if (item.type === "list" || item.type === "tag") {
@@ -364,13 +388,19 @@ AFRAME.registerComponent('media-selector', {
 			if (ev.detail.index == 0) {
 				this._openList(this.data.storage, this.data.path, true);
 			} else if (ev.detail.index == 1) {
-				new LocalList("favoriteItems").addItem(this.item, this.data.storage);
+				storageList.getList('Favs').addItem(this.item);
+			} else if (ev.detail.index == 2) {
+				storageList.getList('Favs').removeItem(this.item);
 			}
 		});
 
 		this._byName('parent-button').addEventListener('click', (e) => {
-			let p = this.data.path.replace(/\/[^/]+$/, '');
-			this._openList(this.data.storage, p);
+			if (this.itemlist.getParentPath) {
+				let parent = this.itemlist.getParentPath();
+				if (parent) {
+					this._openList(this.data.storage, parent);
+				}
+			}
 		});
 
 		this._byName('sort-option').setAttribute('values', ["Name", "New", "Size"].join(","));
@@ -387,7 +417,7 @@ AFRAME.registerComponent('media-selector', {
 	},
 	async _openList(storage, path, openWindow) {
 		if ((openWindow || this.data.openWindow) && window.appManager) {
-			let mediaList = await window.appManager.launch('mediaListTemplate');
+			let mediaList = await window.appManager.launch('app-media-selector');
 			let pos = new THREE.Vector3().set(this.el.getAttribute("width") * 1 + 0.3, 0, 0);
 			mediaList.setAttribute("rotation", this.el.getAttribute("rotation"));
 			mediaList.setAttribute("position", this.el.object3D.localToWorld(pos));
@@ -413,10 +443,10 @@ AFRAME.registerComponent('media-selector', {
 		let mediaList = this._byName('medialist').components.xylist;
 		mediaList.setContents([]);
 		this.itemlist.init().then(() => {
-			mediaList.setContents(this.itemlist, this.itemlist.size);
-			this.el.setAttribute("title", this.itemlist.name);
-			this.item.name = this.itemlist.name;
+			this.item.name = this.itemlist.name || this.itemlist.itemPath;
 			this.item.thumbnailUrl = this.itemlist.thumbnailUrl;
+			mediaList.setContents(this.itemlist, this.itemlist.size);
+			this.el.setAttribute("title", this.item.name);
 		});
 	},
 	movePos(d) {
@@ -546,10 +576,14 @@ AFRAME.registerComponent('media-player', {
 				}
 			};
 			new MP4Player(dataElem).setBufferedReader(new BufferedReader(options));
-		} else if (f.loadMedia) {
-			f.loadMedia(dataElem);
 		} else if (!f.url && f.fetch) {
-			(async () => dataElem.src = URL.createObjectURL(await (await f.fetch()).blob()))();
+			(async () => {
+				let url = URL.createObjectURL(await (await f.fetch()).blob())
+				dataElem.addEventListener('load', (ev) => {
+					URL.revokeObjectURL(url);
+				}, { once: true });
+				dataElem.src = url;
+			})();
 		} else {
 			dataElem.src = f.url;
 		}
@@ -663,10 +697,10 @@ AFRAME.registerSystem('media-player', {
 	},
 	async playContent(item, mediaSelector) {
 		if (this.currentPlayer === null) {
-			(await window.appManager.launch('mediaPlayerTemplate')).addEventListener('loaded', e => {
+			(await window.appManager.launch('app-media-player')).addEventListener('loaded', e => {
 				this.currentPlayer.mediaSelector = mediaSelector;
 				this.currentPlayer.playContent(item, mediaSelector);
-			}, false);
+			}, { once: true });
 		} else {
 			this.currentPlayer.mediaSelector = mediaSelector;
 			this.currentPlayer.playContent(item, mediaSelector);

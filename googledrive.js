@@ -43,12 +43,13 @@ class GoogleDrive {
     async getFile(fileId) {
         let response = await gapi.client.drive.files.get({
             fileId: fileId,
-            alt: 'media'
+            fields: "id, name, size, mimeType, modifiedTime, iconLink, thumbnailLink, parents",
+            // alt: 'media'
         });
         if (!response || response.status != 200) {
             return null;
         }
-        return response.body;
+        return response.result;
     }
     async create(name, content, mimeType, folder) {
         return await gapi.client.drive.files.create({
@@ -86,7 +87,7 @@ class GoogleDrive {
         return await response.blob();
     }
 }
-class FileList {
+class GoogleDriveFileList {
     constructor(folder, options, drive) {
         this.itemPath = folder;
         this.options = options || {};
@@ -100,6 +101,7 @@ class FileList {
         this.loadPromise = null;
         this.driveOption = {};
         this.items = [];
+        this.parent = null;
         if (this.options.orderBy == "name") {
             this.driveOption.orderBy = "name" + (this.options.order == "d" ? " desc" : "");
         } else if (this.options.orderBy == "updated") {
@@ -108,6 +110,12 @@ class FileList {
     }
     async init() {
         await this._load();
+        this.drive.getFile(this.itemPath).then(f => {
+            this.name = f.name;
+            if (f.parents && f.parents.length > 0) {
+                this.parent = f.parents[0];
+            }
+        });
     }
     async get(position) {
         let item = this._getOrNull(position);
@@ -152,6 +160,9 @@ class FileList {
             this.loadPromise = null;
         }
     }
+    getParentPath() {
+        return this.parent;
+    }
     _getOrNull(position) {
         if (position < this.offset || position >= this.offset + this.items.length) return null;
         return this.items[position - this.offset];
@@ -178,6 +189,6 @@ async function gapiLoaded() {
         name: "Google Drive",
         root: 'root',
         shortcuts: {},
-        getList: (folder, options) => new FileList(folder, options, drive)
+        getList: (folder, options) => new GoogleDriveFileList(folder, options, drive)
     };
 }
