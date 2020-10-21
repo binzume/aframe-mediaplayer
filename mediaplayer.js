@@ -363,7 +363,7 @@ AFRAME.registerComponent('media-selector', {
 				}
 				item = Object.assign({}, item, { fetch: () => fetch(url), type: 'image/jpeg' });
 			}
-			if (item.url == null && item.size > 0 && list.fetch) {
+			if (item.url == null && item.size > 0 && this.itemlist.fetch) {
 				let list = this.itemlist;
 				item = Object.assign({ fetch: (start, end) => list.fetch(item, start, end) }, item);
 			}
