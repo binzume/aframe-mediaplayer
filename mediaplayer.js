@@ -11,12 +11,18 @@ class BaseFileList {
 		this.size = -1;
 		this.name = "";
 		this.thumbnailUrl = null;
+		this.onupdate = null;
 	}
 	init() {
 		return this.get(0)
 	}
 	async get(position) {
 		throw 'not implemented';
+	}
+	notifyUpdate() {
+		if (this.onupdate) {
+			this.onupdate();
+		}
 	}
 }
 
@@ -126,17 +132,20 @@ class LocalList extends OnMemoryFileList {
 		this.items.push(item);
 		this.setItems(this.items);
 		localStorage.setItem(this.itemPath, JSON.stringify(this.items));
+		this.notifyUpdate();
 	}
 	removeItem(item, storage = null) {
 		let s = storage || item.storage, path = item.path;
 		this.items = this.items.filter(i => i.storage != s || i.path != path);
 		this.setItems(this.items);
 		localStorage.setItem(this.itemPath, JSON.stringify(this.items));
+		this.notifyUpdate();
 	}
 	clear() {
 		this.items = [];
 		this.size = 0;
 		localStorage.removeItem(this.itemPath);
+		this.notifyUpdate();
 	}
 	_getOrNull(position) {
 		return this.items[position];
@@ -174,11 +183,12 @@ class StorageList extends OnMemoryFileList {
 	addStorage(id, data) {
 		this.accessors[id] = data;
 		this._update();
+		this.notifyUpdate();
 	}
 }
 
-let storageList = new StorageList(window.storageAccessors);
-window.storageAccessors = new Proxy({}, {
+let storageList = new StorageList(globalThis.storageAccessors);
+globalThis.storageAccessors = new Proxy({}, {
 	// NOTE: Storage can only be accessed via storageList.
 	set: function (obj, prop, value) {
 		storageList.addStorage(prop, value);
@@ -384,7 +394,7 @@ AFRAME.registerComponent('media-selector', {
 		});
 
 		this._byName('option-menu').setAttribute('xyselect', 'select', -1);
-		this._byName('option-menu').addEventListener('change', ev => {
+		this._byName('option-menu').addEventListener('change', (/** @type {CustomEvent} */ev) => {
 			if (ev.detail.index == 0) {
 				this._openList(this.data.storage, this.data.path, true);
 			} else if (ev.detail.index == 1) {
@@ -394,7 +404,7 @@ AFRAME.registerComponent('media-selector', {
 			}
 		});
 
-		this._byName('parent-button').addEventListener('click', (e) => {
+		this._byName('parent-button').addEventListener('click', (ev) => {
 			if (this.itemlist.getParentPath) {
 				let parent = this.itemlist.getParentPath();
 				if (parent) {
@@ -403,8 +413,8 @@ AFRAME.registerComponent('media-selector', {
 			}
 		});
 
-		this._byName('sort-option').setAttribute('values', ["Name", "New", "Size"].join(","));
-		this._byName('sort-option').addEventListener('change', ev => {
+		this._byName('sort-option').setAttribute('values', ["Name", "Update", "Size"].join(","));
+		this._byName('sort-option').addEventListener('change', (/** @type {CustomEvent} */ev) => {
 			let field = ["name", "updated", "size"][ev.detail.index];
 			this.setSort(field, (this.sortBy == field && this.sortOrder == "a") ? "d" : "a");
 		});
@@ -414,6 +424,9 @@ AFRAME.registerComponent('media-selector', {
 		console.log("load list: ", path);
 		this.item = { type: "list", path: path, name: path, storage: this.data.storage };
 		this._loadList(path);
+	},
+	remove() {
+		this.itemlist.onupdate = null;
 	},
 	async _openList(storage, path, openWindow) {
 		if ((openWindow || this.data.openWindow) && window.appManager) {
@@ -434,6 +447,7 @@ AFRAME.registerComponent('media-selector', {
 	},
 	_loadList(path) {
 		this.currentPos = 0;
+		this.itemlist.onupdate = null;
 		this.itemlist = storageList.getList(this.data.storage, path, { orderBy: this.sortBy, order: this.sortOrder });
 		if (!this.itemlist) {
 			storageList._setSort(this.sortBy, this.sortOrder);
@@ -446,6 +460,9 @@ AFRAME.registerComponent('media-selector', {
 			this.item.name = this.itemlist.name || this.itemlist.itemPath;
 			this.item.thumbnailUrl = this.itemlist.thumbnailUrl;
 			mediaList.setContents(this.itemlist, this.itemlist.size);
+			this.itemlist.onupdate = () => {
+				mediaList.setContents(this.itemlist, this.itemlist.size);
+			};
 			this.el.setAttribute("title", this.item.name);
 		});
 	},
@@ -487,6 +504,7 @@ AFRAME.registerComponent('media-player', {
 		this.onclicked = ev => this.system.selectPlayer(this);
 		this.el.addEventListener('click', this.onclicked);
 		this.screen.addEventListener('click', ev => this.togglePause());
+		this.stereoMode = 0;
 
 		let mediaController = this.data.mediaController;
 		this.el.querySelectorAll("[" + mediaController + "]").forEach(controller => {
@@ -543,7 +561,8 @@ AFRAME.registerComponent('media-player', {
 		this.screen.removeAttribute("material"); // to avoid texture leaks.
 		this.screen.setAttribute('material', { shader: "flat", src: this.data.loadingSrc, transparent: false, npot: true });
 
-		var dataElem;
+		/** @type {Element & {[x:string]:any}} TODO clean up type */
+		let dataElem;
 		if (f.type && f.type.split("/")[0] == "image") {
 			dataElem = Object.assign(document.createElement("img"), { crossOrigin: "" });
 			dataElem.addEventListener('load', ev => {
@@ -603,6 +622,7 @@ AFRAME.registerComponent('media-player', {
 				});
 			}
 		}
+		this.setStereoMode(this.stereoMode);
 	},
 	tick() {
 		// workaround for https://bugs.chromium.org/p/chromium/issues/detail?id=1107578
@@ -611,17 +631,30 @@ AFRAME.registerComponent('media-player', {
 		}
 	},
 	setStereoMode(idx) {
-		let sky = document.querySelector("a-sky");
-		if (sky && this.orgsky == null) {
-			this.orgsky = sky.getAttribute("src");
-		} else if (sky && this.orgsky) {
-			document.querySelector("a-sky").setAttribute("src", this.orgsky);
+		this.stereoMode = idx;
+		if (idx == 3 || idx == 4) {
+			if (!this.sky360) {
+				this.orgEnv = document.querySelector('#env');
+				if (this.orgEnv) {
+					this.orgEnv.parentNode.removeChild(this.orgEnv);
+				}
+				this.sky360 = document.createElement('a-sky');
+				this.sky360.setAttribute('material', { fog: false });
+				this.el.sceneEl.appendChild(this.sky360);
+			}
+		} else {
+			if (this.sky360) {
+				if (this.orgEnv) {
+					this.el.sceneEl.appendChild(this.orgEnv);
+				}
+				this.sky360 && this.sky360.parentNode.removeChild(this.sky360);
+				this.orgEnv = null;
+				this.sky360 = null;
+			}
 		}
+
 		if (this.screen.hasAttribute("stereo-texture")) {
 			this.screen.removeAttribute("stereo-texture");
-		}
-		if (sky && sky.hasAttribute("stereo-texture")) {
-			sky.removeAttribute("stereo-texture");
 		}
 		if (this.envbox) {
 			this.el.sceneEl.removeChild(this.envbox);
@@ -635,11 +668,11 @@ AFRAME.registerComponent('media-player', {
 		} else if (idx == 2) {
 			this.screen.setAttribute("stereo-texture", { mode: "top-and-bottom" });
 		} else if (idx == 3) {
-			sky.setAttribute("src", "#" + this.mediaEl.id);
+			this.sky360.setAttribute("src", "#" + this.mediaEl.id);
 			this.screen.setAttribute("visible", false);
 		} else if (idx == 4) {
-			sky.setAttribute("src", "#" + this.mediaEl.id);
-			sky.setAttribute("stereo-texture", { mode: "top-and-bottom" });
+			this.sky360.setAttribute("src", "#" + this.mediaEl.id);
+			this.sky360.setAttribute("stereo-texture", { mode: "top-and-bottom" });
 			this.screen.setAttribute("visible", false);
 		} else if (idx == 5) {
 			this.envbox = document.createElement('a-cubemapbox');
@@ -670,8 +703,8 @@ AFRAME.registerComponent('media-player', {
 
 AFRAME.registerSystem('media-player', {
 	shortcutKeys: true,
+	currentPlayer: null,
 	init() {
-		this.currentPlayer = null;
 		document.addEventListener('keydown', ev => {
 			if (this.shortcutKeys && !this.currentPlayer) return;
 			switch (ev.code) {
@@ -998,57 +1031,55 @@ AFRAME.registerShader('msdf2', {
 		this.uniforms = THREE.UniformsUtils.merge([this.initVariables(data, 'uniform'), THREE.UniformsLib.fog]);
 		this.material = new THREE.ShaderMaterial({
 			uniforms: this.uniforms,
-			vertexShader: this.vertexShader,
-			fragmentShader: this.fragmentShader,
 			flatShading: true,
-			fog: true
-		});
-	},
-	vertexShader: `
-	#define USE_MAP
-	#define USE_UV
-	#include <common>
-	#include <uv_pars_vertex>
-	#include <color_pars_vertex>
-	#include <fog_pars_vertex>
-	#include <clipping_planes_pars_vertex>
-	uniform vec2 offset;
-	uniform vec2 repeat;
-	void main() {
-		vUv = uv * repeat + offset;
-		#include <color_vertex>
-		#include <begin_vertex>
-		#include <project_vertex>
-		#include <worldpos_vertex>
-		#include <clipping_planes_vertex>
-		#include <fog_vertex>
-	}`,
-	fragmentShader: `
-	// #extension GL_OES_standard_derivatives : enable
-	uniform vec3 diffuse;
-	uniform float opacity;
-	uniform vec2 msdfUnit;
-	uniform sampler2D src;
-	#define USE_MAP
-	#define USE_UV
-	#include <common>
-	#include <color_pars_fragment>
-	#include <uv_pars_fragment>
-	#include <fog_pars_fragment>
-	#include <clipping_planes_pars_fragment>
-	float median(float r, float g, float b) {
-		return max(min(r, g), min(max(r, g), b));
-	}
-	void main() {
-		#include <clipping_planes_fragment>
-		vec4 texcol = texture2D( src, vUv );
-		float sigDist = median(texcol.r, texcol.g, texcol.b) - 0.5;
-		sigDist *= dot(msdfUnit, 0.5/fwidth(vUv));
+			fog: true,
+			vertexShader: `
+			#define USE_MAP
+			#define USE_UV
+			#include <common>
+			#include <uv_pars_vertex>
+			#include <color_pars_vertex>
+			#include <fog_pars_vertex>
+			#include <clipping_planes_pars_vertex>
+			uniform vec2 offset;
+			uniform vec2 repeat;
+			void main() {
+				vUv = uv * repeat + offset;
+				#include <color_vertex>
+				#include <begin_vertex>
+				#include <project_vertex>
+				#include <worldpos_vertex>
+				#include <clipping_planes_vertex>
+				#include <fog_vertex>
+			}`,
+			fragmentShader: `
+			// #extension GL_OES_standard_derivatives : enable
+			uniform vec3 diffuse;
+			uniform float opacity;
+			uniform vec2 msdfUnit;
+			uniform sampler2D src;
+			#define USE_MAP
+			#define USE_UV
+			#include <common>
+			#include <color_pars_fragment>
+			#include <uv_pars_fragment>
+			#include <fog_pars_fragment>
+			#include <clipping_planes_pars_fragment>
+			float median(float r, float g, float b) {
+				return max(min(r, g), min(max(r, g), b));
+			}
+			void main() {
+				#include <clipping_planes_fragment>
+				vec4 texcol = texture2D( src, vUv );
+				float sigDist = median(texcol.r, texcol.g, texcol.b) - 0.5;
+				sigDist *= dot(msdfUnit, 0.5/fwidth(vUv));
 
-		vec4 diffuseColor = vec4( diffuse, opacity * clamp(sigDist + 0.5, 0.0, 1.0));
-		#include <color_fragment>
-		#include <alphatest_fragment>
-		gl_FragColor = diffuseColor;
-		#include <fog_fragment>
-	}`
+				vec4 diffuseColor = vec4( diffuse, opacity * clamp(sigDist + 0.5, 0.0, 1.0));
+				#include <color_fragment>
+				#include <alphatest_fragment>
+				gl_FragColor = diffuseColor;
+				#include <fog_fragment>
+			}`
+		});
+	}
 });

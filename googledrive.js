@@ -184,6 +184,7 @@ async function gapiLoaded() {
         console.log("drive unavailable");
         return;
     }
+    console.log('gapi init');
 
     storageAccessors["GoogleDrive"] = {
         name: "Google Drive",
