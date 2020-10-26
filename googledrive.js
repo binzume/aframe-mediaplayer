@@ -109,13 +109,15 @@ class GoogleDriveFileList {
         }
     }
     async init() {
-        await this._load();
-        this.drive.getFile(this.itemPath).then(f => {
-            this.name = f.name;
-            if (f.parents && f.parents.length > 0) {
-                this.parent = f.parents[0];
-            }
-        });
+        await Promise.all([
+            this._load(),
+            this.drive.getFile(this.itemPath).then(f => {
+                this.name = f.name;
+                if (f.parents && f.parents.length > 0) {
+                    this.parent = f.parents[0];
+                }
+            })
+        ]);
     }
     async get(position) {
         let item = this._getOrNull(position);

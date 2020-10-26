@@ -53,14 +53,13 @@
       </a-xywindow>
     </a-entity>
     <a-entity id="media-selector-template">
-      <a-xywindow media-selector position="-1.5 0.5 -2" scale="0.2 0.2 0.2" title="Media" width="6" height="6" xycontainer="direction:column">
+      <a-xywindow media-selector xywindow="background:true" position="-1.5 0.5 -2" scale="0.2 0.2 0.2" title="Media" width="6" height="6.3" xycontainer="direction:column">
         <a-xycontainer width="6" height="0.4" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xybutton name="storage-button" label="/" width="0.5"></a-xybutton>
           <a-xybutton name="parent-button" label="[..]" width="0.4"></a-xybutton>
           <a-xyselect name="sort-option" label="sort" width="0.5" height="0.4" values=""></a-xyselect>
           <a-xyselect name="option-menu" label="..." width="0.2" values="NewWindow,+Fav,-Fav"></a-xybutton>
         </a-xycontainer>
-        <a-plane xyitem="fixed:true" class="collidable" width=6 height=6 position="0 -0.4 -0.1" material="color: #111; opacity:0.5"></a-plane>
         <a-xyscroll width=6 height=6>
           <a-entity name="medialist" xylist="" xyrect=""></a-entity>
         </a-xyscroll>
