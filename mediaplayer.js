@@ -34,10 +34,6 @@ class ItemList extends BaseFileList {
 		this.apiUrl = apiUrl;
 		this.loadPromise = null;
 		this.items = [];
-		let m = window.location.search.match(/api=(.*)/);
-		if (m) {
-			this.apiUrl = m[1];
-		}
 	}
 	init() {
 		return this._load(0);
@@ -53,6 +49,16 @@ class ItemList extends BaseFileList {
 	}
 	async _load(offset) {
 		if (this.loadPromise !== null) return await this.loadPromise;
+
+		let baseUrl = (this.apiUrl + this.itemPath).replace(/[^/]+$/, '');
+		let convUrl = (path) => {
+			if (path == null || path.includes('://')) return path;
+			if (!path.startsWith('/')) {
+				return baseUrl + path;;
+			}
+			return path;
+		};
+
 		this.loadPromise = (async () => {
 			let params = "?offset=" + offset;
 			if (this.options.orderBy) params += "&orderBy=" + this.options.orderBy;
@@ -60,8 +66,12 @@ class ItemList extends BaseFileList {
 			let response = await fetch(this.apiUrl + this.itemPath + params);
 			if (response.ok) {
 				let result = await response.json();
+				for (let item of result.items) {
+					item.url = convUrl(item.url);
+					item.thumbnailUrl = convUrl(item.thumbnailUrl);
+				}
 				this.offset = offset;
-				this.size = result.total;
+				this.size = result.total || result.items.length;
 				this.items = result.items;
 				this.name = result.name || this.itemPath;
 				if (!this.thumbnailUrl && result.items[0]) this.thumbnailUrl = result.items[0].thumbnailUrl;
@@ -202,7 +212,9 @@ storageList.addStorage('Favs', {
 	shortcuts: {},
 	getList: (folder, options) => new LocalList("favoriteItems", options)
 });
-if (!location.href.includes('.github.io')) { // TODO
+
+// TODO: settings for each environment.
+if (!location.href.includes('.github.io')) {
 	storageList.addStorage('MEDIA', {
 		name: "Media",
 		root: "tags",
@@ -210,6 +222,12 @@ if (!location.href.includes('.github.io')) { // TODO
 		getList: (folder, options) => new ItemList("../api/", folder, options)
 	});
 }
+storageList.addStorage('DEMO', {
+	name: "Demo",
+	root: "list.json",
+	shortcuts: {},
+	getList: (folder, options) => new ItemList("https://binzume.github.io/demo-assets/", folder, options)
+});
 
 AFRAME.registerComponent('media-selector', {
 	schema: {
@@ -642,6 +660,7 @@ AFRAME.registerComponent('media-player', {
 				this.sky360.setAttribute('material', { fog: false });
 				this.el.sceneEl.appendChild(this.sky360);
 			}
+			this.sky360.setAttribute("src", "#" + this.mediaEl.id);
 		} else {
 			if (this.sky360) {
 				if (this.orgEnv) {
@@ -653,9 +672,7 @@ AFRAME.registerComponent('media-player', {
 			}
 		}
 
-		if (this.screen.hasAttribute("stereo-texture")) {
-			this.screen.removeAttribute("stereo-texture");
-		}
+		this.screen.removeAttribute("stereo-texture");
 		if (this.envbox) {
 			this.el.sceneEl.removeChild(this.envbox);
 			this.envbox.destroy();
@@ -668,10 +685,9 @@ AFRAME.registerComponent('media-player', {
 		} else if (idx == 2) {
 			this.screen.setAttribute("stereo-texture", { mode: "top-and-bottom" });
 		} else if (idx == 3) {
-			this.sky360.setAttribute("src", "#" + this.mediaEl.id);
+			this.sky360.removeAttribute("stereo-texture");
 			this.screen.setAttribute("visible", false);
 		} else if (idx == 4) {
-			this.sky360.setAttribute("src", "#" + this.mediaEl.id);
 			this.sky360.setAttribute("stereo-texture", { mode: "top-and-bottom" });
 			this.screen.setAttribute("visible", false);
 		} else if (idx == 5) {
@@ -698,6 +714,7 @@ AFRAME.registerComponent('media-player', {
 		this.screen.removeAttribute("material"); // to avoid texture leaks.
 		if (this.mediaEl) this.mediaEl.parentNode.removeChild(this.mediaEl);
 		this.el.removeEventListener('click', this.onclicked);
+		this.setStereoMode(0);
 	}
 });
 
